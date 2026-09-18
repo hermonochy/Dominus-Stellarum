@@ -64,54 +64,90 @@ class Galaxy:
     def _create_systems(self) -> None:
         positions: list[pygame.Vector2] = []
 
-        attempts = 0
-
-        min_y = config.TOP_BAR_HEIGHT + 40
-        max_y = (
-            config.HEIGHT
-            - config.BOTTOM_BAR_HEIGHT
-            - 30
+        center = pygame.Vector2(
+            config.GALAXY_CENTER_X,
+            config.GALAXY_CENTER_Y,
         )
 
-        while (
-            len(positions) < config.STAR_COUNT
-            and attempts < 15000
+        for system_id in range(
+            config.STAR_COUNT
         ):
-            attempts += 1
+            arm = system_id % config.GALAXY_ARMS
 
-            position = pygame.Vector2(
-                self.rng.randint(
-                    60,
-                    config.WIDTH - 60,
-                ),
-                self.rng.randint(
-                    min_y,
-                    max_y,
-                ),
-            )
-
-            valid = all(
-                position.distance_to(other)
-                >= config.MIN_STAR_DISTANCE
-                for other in positions
-            )
-
-            if valid:
-                positions.append(position)
-
-        while len(positions) < config.STAR_COUNT:
-            positions.append(
-                pygame.Vector2(
-                    self.rng.randint(
-                        60,
-                        config.WIDTH - 60,
-                    ),
-                    self.rng.randint(
-                        min_y,
-                        max_y,
-                    ),
+            progress = (
+                system_id
+                / max(
+                    1,
+                    config.STAR_COUNT - 1,
                 )
             )
+
+            radius = 35.0 + (
+                progress
+                * min(
+                    config.GALAXY_RADIUS_X,
+                    config.GALAXY_RADIUS_Y,
+                )
+            )
+
+            angle = (
+                arm
+                * (
+                    math.tau
+                    / config.GALAXY_ARMS
+                )
+                + progress
+                * config.GALAXY_ARM_TWIST
+                * math.tau
+            )
+
+            position = center + pygame.Vector2(
+                math.cos(angle)
+                * radius
+                * 1.7,
+                math.sin(angle)
+                * radius,
+            )
+
+            position.x += self.rng.uniform(
+                -config.GALAXY_POSITION_JITTER,
+                config.GALAXY_POSITION_JITTER,
+            )
+
+            position.y += self.rng.uniform(
+                -config.GALAXY_POSITION_JITTER,
+                config.GALAXY_POSITION_JITTER,
+            )
+
+            position.x = max(
+                60,
+                min(
+                    config.WIDTH - 60,
+                    position.x,
+                ),
+            )
+
+            position.y = max(
+                config.TOP_BAR_HEIGHT + 35,
+                min(
+                    config.HEIGHT
+                    - config.BOTTOM_BAR_HEIGHT
+                    - 30,
+                    position.y,
+                ),
+            )
+
+            if any(
+                position.distance_to(other)
+                < config.MIN_STAR_DISTANCE
+                for other in positions
+            ):
+                position += pygame.Vector2(
+                    self.rng.uniform(-30, 30),
+                    self.rng.uniform(-30, 30),
+                )
+
+            positions.append(position)
 
         prefixes = [
             "Al",
@@ -162,7 +198,9 @@ class Galaxy:
 
         used_names: set[str] = set()
 
-        for system_id, position in enumerate(positions):
+        for system_id, position in enumerate(
+            positions
+        ):
             name = self._generate_system_name(
                 prefixes,
                 suffixes,
@@ -181,15 +219,16 @@ class Galaxy:
                 )
             )
 
-            system = StarSystem(
-                id=system_id,
-                name=name,
-                pos=position,
-                production=production,
-                ships=ships,
+            self.systems.append(
+                StarSystem(
+                    id=system_id,
+                    name=name,
+                    pos=position,
+                    production=production,
+                    ships=ships,
+                )
             )
 
-            self.systems.append(system)
             self.neighbors[system_id] = set()
 
     def _generate_system_name(
@@ -209,28 +248,9 @@ class Galaxy:
                 return name
 
     def _create_hyperlanes(self) -> None:
-        for system in self.systems:
-            distances = sorted(
-                (
-                    (
-                        system.pos.distance_to(
-                            other.pos
-                        ),
-                        other.id,
-                    )
-                    for other in self.systems
-                    if other.id != system.id
-                ),
-                key=lambda item: item[0],
-            )
-
-            for _, other_id in distances[
-                :config.MIN_CONNECTIONS
-            ]:
-                self._connect(
-                    system.id,
-                    other_id,
-                )
+        candidates: list[
+            tuple[float, int, int]
+        ] = []
 
         for first in self.systems:
             for second in self.systems[
@@ -240,36 +260,209 @@ class Galaxy:
                     second.pos
                 )
 
-                if distance > config.EDGE_DISTANCE:
-                    continue
-
-                normalized = (
-                    distance
-                    / config.EDGE_DISTANCE
-                )
-
-                chance = (
-                    0.5
-                    * (1.0 - normalized)
-                    + 0.08
-                )
-
-                if self.rng.random() < chance:
-                    self._connect(
+                candidates.append(
+                    (
+                        distance,
                         first.id,
                         second.id,
                     )
+                )
 
-        self._ensure_connected()
+        candidates.sort()
+
+        # First build a connected, non-crossing
+        # backbone using short links.
+        for _, first_id, second_id in candidates:
+            if self._has_path(
+                first_id,
+                second_id,
+            ):
+                continue
+
+            if self._can_connect(
+                first_id,
+                second_id,
+            ):
+                self._connect(
+                    first_id,
+                    second_id,
+                )
+
+        # Add short, non-crossing links until most
+        # systems have two or three connections.
+        for _, first_id, second_id in candidates:
+            if (
+                len(self.neighbors[first_id])
+                >= config.MAX_CONNECTIONS
+            ):
+                continue
+
+            if (
+                len(self.neighbors[second_id])
+                >= config.MAX_CONNECTIONS
+            ):
+                continue
+
+            if self.rng.random() > 0.35:
+                continue
+
+            if self._can_connect(
+                first_id,
+                second_id,
+            ):
+                self._connect(
+                    first_id,
+                    second_id,
+                )
+
+        # A final pass guarantees that isolated systems
+        # have at least one connection.
+        for system in self.systems:
+            if self.neighbors[system.id]:
+                continue
+
+            nearest = min(
+                (
+                    other
+                    for other in self.systems
+                    if other.id != system.id
+                ),
+                key=lambda other: (
+                    system.pos.distance_to(
+                        other.pos
+                    )
+                ),
+            )
+
+            if self._can_connect(
+                system.id,
+                nearest.id,
+                ignore_degree=True,
+            ):
+                self._connect(
+                    system.id,
+                    nearest.id,
+                )
+
+    def _can_connect(
+        self,
+        first_id: int,
+        second_id: int,
+        ignore_degree: bool = False,
+    ) -> bool:
+        if first_id == second_id:
+            return False
+
+        if (
+            second_id
+            in self.neighbors[first_id]
+        ):
+            return False
+
+        if not ignore_degree:
+            if (
+                len(self.neighbors[first_id])
+                >= config.MAX_CONNECTIONS
+            ):
+                return False
+
+            if (
+                len(self.neighbors[second_id])
+                >= config.MAX_CONNECTIONS
+            ):
+                return False
+
+        first = self.systems[first_id]
+        second = self.systems[second_id]
+
+        for edge_first, edge_second in self.edges:
+            if first_id in (
+                edge_first,
+                edge_second,
+            ):
+                continue
+
+            if second_id in (
+                edge_first,
+                edge_second,
+            ):
+                continue
+
+            other_first = self.systems[
+                edge_first
+            ]
+
+            other_second = self.systems[
+                edge_second
+            ]
+
+            if self._segments_intersect(
+                first.pos,
+                second.pos,
+                other_first.pos,
+                other_second.pos,
+            ):
+                return False
+
+        return True
+
+    @staticmethod
+    def _segments_intersect(
+        first: pygame.Vector2,
+        second: pygame.Vector2,
+        third: pygame.Vector2,
+        fourth: pygame.Vector2,
+    ) -> bool:
+        def orientation(
+            a: pygame.Vector2,
+            b: pygame.Vector2,
+            c: pygame.Vector2,
+        ) -> float:
+            return (
+                (b.x - a.x)
+                * (c.y - a.y)
+                - (b.y - a.y)
+                * (c.x - a.x)
+            )
+
+        first_orientation = orientation(
+            first,
+            second,
+            third,
+        )
+
+        second_orientation = orientation(
+            first,
+            second,
+            fourth,
+        )
+
+        third_orientation = orientation(
+            third,
+            fourth,
+            first,
+        )
+
+        fourth_orientation = orientation(
+            third,
+            fourth,
+            second,
+        )
+
+        return (
+            first_orientation
+            * second_orientation
+            < 0
+            and third_orientation
+            * fourth_orientation
+            < 0
+        )
 
     def _connect(
         self,
         first_id: int,
         second_id: int,
     ) -> None:
-        if first_id == second_id:
-            return
-
         edge = tuple(
             sorted(
                 (
@@ -280,97 +473,56 @@ class Galaxy:
         )
 
         self.edges.add(edge)
-
         self.neighbors[first_id].add(second_id)
         self.neighbors[second_id].add(first_id)
 
-    def _ensure_connected(self) -> None:
-        while True:
-            components = self._get_components()
+    def _has_path(
+        self,
+        source_id: int,
+        target_id: int,
+    ) -> bool:
+        if source_id == target_id:
+            return True
 
-            if len(components) <= 1:
-                return
+        visited = {source_id}
+        queue = [source_id]
 
-            first_component = components[0]
-            best_pair = None
-            best_distance = float("inf")
+        while queue:
+            current = queue.pop(0)
 
-            for first_id in first_component:
-                for component in components[1:]:
-                    for second_id in component:
-                        distance = (
-                            self.systems[first_id].pos.distance_to(
-                                self.systems[second_id].pos
-                            )
-                        )
+            for neighbor in self.neighbors[current]:
+                if neighbor == target_id:
+                    return True
 
-                        if distance < best_distance:
-                            best_distance = distance
-                            best_pair = (
-                                first_id,
-                                second_id,
-                            )
-
-            if best_pair is not None:
-                self._connect(
-                    best_pair[0],
-                    best_pair[1],
-                )
-
-    def _get_components(self) -> list[set[int]]:
-        remaining = set(
-            range(len(self.systems))
-        )
-
-        components: list[set[int]] = []
-
-        while remaining:
-            start = next(iter(remaining))
-            stack = [start]
-            component: set[int] = set()
-
-            while stack:
-                current = stack.pop()
-
-                if current in component:
+                if neighbor in visited:
                     continue
 
-                component.add(current)
-                remaining.discard(current)
+                visited.add(neighbor)
+                queue.append(neighbor)
 
-                for neighbor in self.neighbors[current]:
-                    if neighbor not in component:
-                        stack.append(neighbor)
-
-            components.append(component)
-
-        return components
+        return False
 
     def _create_empires(self) -> None:
         for empire_id in range(
             config.EMPIRE_COUNT
         ):
-            name = config.EMPIRE_NAMES[
-                empire_id
-                % len(config.EMPIRE_NAMES)
-            ]
-
-            color = config.EMPIRE_COLORS[
-                empire_id
-                % len(config.EMPIRE_COLORS)
-            ]
-
-            empire = Empire(
-                id=empire_id,
-                name=name,
-                color=color,
-                is_player=(
-                    empire_id
-                    == config.PLAYER_ID
-                ),
+            self.empires.append(
+                Empire(
+                    id=empire_id,
+                    name=config.EMPIRE_NAMES[
+                        empire_id
+                        % len(config.EMPIRE_NAMES)
+                    ],
+                    color=config.EMPIRE_COLORS[
+                        empire_id
+                        % len(config.EMPIRE_COLORS)
+                    ],
+                    is_player=(
+                        empire_id
+                        == config.PLAYER_ID
+                    ),
+                )
             )
-
-            self.empires.append(empire)
 
     def _place_empires(self) -> None:
         first_system = self.rng.randrange(
@@ -414,12 +566,41 @@ class Galaxy:
         self,
         dt: float,
     ) -> None:
+        owned_counts: dict[int, int] = {}
+
         for system in self.systems:
             if system.owner_id is None:
                 continue
 
+            owned_counts[system.owner_id] = (
+                owned_counts.get(
+                    system.owner_id,
+                    0,
+                )
+                + 1
+            )
+
+        for system in self.systems:
+            if system.owner_id is None:
+                continue
+
+            owned_count = max(
+                1,
+                owned_counts.get(
+                    system.owner_id,
+                    1,
+                ),
+            )
+
+            efficiency = (
+                owned_count
+                ** config.PRODUCTION_CONCENTRATION
+            )
+
             system.ships += (
-                system.production * dt
+                system.production
+                * dt
+                / efficiency
             )
 
     def shortest_path(
@@ -431,15 +612,12 @@ class Galaxy:
             return (source_id,)
 
         if (
-            source_id < 0
-            or source_id >= len(self.systems)
-            or target_id < 0
-            or target_id >= len(self.systems)
+            source_id not in self.neighbors
+            or target_id not in self.neighbors
         ):
             return None
 
         queue = [source_id]
-
         previous: dict[
             int,
             Optional[int],
@@ -450,13 +628,13 @@ class Galaxy:
         while queue:
             current = queue.pop(0)
 
-            for neighbor_id in self.neighbors[current]:
-                if neighbor_id in previous:
+            for neighbor in self.neighbors[current]:
+                if neighbor in previous:
                     continue
 
-                previous[neighbor_id] = current
+                previous[neighbor] = current
 
-                if neighbor_id == target_id:
+                if neighbor == target_id:
                     path = [target_id]
                     cursor = target_id
 
@@ -467,7 +645,7 @@ class Galaxy:
                     path.reverse()
                     return tuple(path)
 
-                queue.append(neighbor_id)
+                queue.append(neighbor)
 
         return None
 
@@ -475,10 +653,7 @@ class Galaxy:
         self,
         source_id: int,
     ) -> set[int]:
-        if (
-            source_id < 0
-            or source_id >= len(self.systems)
-        ):
+        if source_id not in self.neighbors:
             return set()
 
         reachable: set[int] = set()
@@ -487,12 +662,12 @@ class Galaxy:
         while queue:
             current = queue.pop(0)
 
-            for neighbor_id in self.neighbors[current]:
-                if neighbor_id in reachable:
+            for neighbor in self.neighbors[current]:
+                if neighbor in reachable:
                     continue
 
-                reachable.add(neighbor_id)
-                queue.append(neighbor_id)
+                reachable.add(neighbor)
+                queue.append(neighbor)
 
         reachable.discard(source_id)
         return reachable
@@ -524,7 +699,13 @@ class Galaxy:
         if route is None or len(route) < 2:
             return False
 
-        fraction = send_percent / 100.0
+        fraction = max(
+            0.0,
+            min(
+                1.0,
+                send_percent / 100.0,
+            ),
+        )
 
         amount = math.floor(
             source.ships * fraction
@@ -535,19 +716,19 @@ class Galaxy:
 
         source.ships -= amount
 
-        fleet = Fleet(
-            id=self.next_fleet_id,
-            owner_id=source.owner_id,
-            source_id=source_id,
-            target_id=target_id,
-            ships=float(amount),
-            route=route,
-            route_index=1,
+        self.fleets.append(
+            Fleet(
+                id=self.next_fleet_id,
+                owner_id=source.owner_id,
+                source_id=source_id,
+                target_id=target_id,
+                ships=float(amount),
+                route=route,
+                route_index=1,
+            )
         )
 
         self.next_fleet_id += 1
-        self.fleets.append(fleet)
-
         return True
 
     def fleet_position(
@@ -608,29 +789,24 @@ class Galaxy:
                 fleet
             )
 
-            attacker_color = self.empires[
-                fleet.owner_id
-            ].color
-
-            if target.owner_id is None:
-                defender_color = (
-                    config.NEUTRAL_COLOR
+            if target.owner_id is not None:
+                new_shots = resolve_fleet_combat(
+                    fleet=fleet,
+                    fleet_position=position,
+                    target=target,
+                    dt=dt,
+                    attacker_color=self.empires[
+                        fleet.owner_id
+                    ].color,
+                    defender_color=self.empires[
+                        target.owner_id
+                    ].color,
+                    rng=self.rng,
                 )
-            else:
-                defender_color = self.empires[
-                    target.owner_id
-                ].color
 
-            new_shots = resolve_fleet_combat(
-                fleet=fleet,
-                fleet_position=position,
-                target=target,
-                dt=dt,
-                attacker_color=attacker_color,
-                defender_color=defender_color,
-            )
-
-            self.combat_shots.extend(new_shots)
+                self.combat_shots.extend(
+                    new_shots
+                )
 
             if len(self.combat_shots) > (
                 config.MAX_VISIBLE_SHOTS

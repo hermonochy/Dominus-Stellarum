@@ -12,7 +12,7 @@ class GameApp:
         pygame.init()
 
         pygame.display.set_caption(
-            "Hyperlane Wars"
+            "Dominus Stellarum"
         )
 
         self.screen = (

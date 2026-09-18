@@ -1,5 +1,5 @@
-WIDTH = 3000
-HEIGHT = 1500
+WIDTH = 1280
+HEIGHT = 800
 FPS = 60
 
 TOP_BAR_HEIGHT = 72
@@ -23,12 +23,33 @@ VALID_TARGET_COLOR = (120, 230, 160)
 
 PLAYER_ID = 0
 
-STAR_COUNT = 50
+STAR_COUNT = 100
 EMPIRE_COUNT = 6
 
-MIN_STAR_DISTANCE = 64
-EDGE_DISTANCE = 215
-MIN_CONNECTIONS = 2
+MIN_STAR_DISTANCE = 58
+GALAXY_CENTER_X = WIDTH // 2
+GALAXY_CENTER_Y = (
+    TOP_BAR_HEIGHT
+    + (
+        HEIGHT
+        - TOP_BAR_HEIGHT
+        - BOTTOM_BAR_HEIGHT
+    )
+    // 2
+)
+
+GALAXY_RADIUS_X = 500
+GALAXY_RADIUS_Y = 270
+GALAXY_ARMS = 3
+GALAXY_ARM_TWIST = 1.8
+GALAXY_POSITION_JITTER = 42
+
+# Every system is intended to have between one and three links.
+MIN_CONNECTIONS = 1
+MAX_CONNECTIONS = 3
+
+# Prevent visually crossing hyperlanes.
+LANE_CROSSING_PADDING = 12.0
 
 STAR_RADIUS = 7
 OWNED_STAR_RADIUS = 10
@@ -41,24 +62,30 @@ NEUTRAL_SHIPS_MAX = 14
 PRODUCTION_MIN = 0.45
 PRODUCTION_MAX = 1.25
 
-FLEET_SPEED = 100.0
+# Slower fleets give defensive systems time to fire.
+FLEET_SPEED = 38.0
 
-# Distance from a defended system at which combat begins.
-COMBAT_RANGE = 115.0
+# Combat begins before a fleet reaches the destination system.
+COMBAT_RANGE = 125.0
 
-# Continuous combat damage per ship per second.
-# Defenders have a small defensive advantage.
-ATTACKER_DAMAGE_PER_SHIP = 0.18
-DEFENDER_DAMAGE_PER_SHIP = 0.28
+# Damage is applied per ship per second.
+ATTACKER_DAMAGE_PER_SHIP = 0.12
+DEFENDER_DAMAGE_PER_SHIP = 0.20
 
-# Combat visual effects.
-SHOT_LIFETIME = 0.12
-MAX_VISIBLE_SHOTS = 120
+# More bullets are emitted than strictly required for the damage model.
+ATTACKER_SHOTS_PER_SECOND = 8.0
+DEFENDER_SHOTS_PER_SECOND = 12.0
 
-# Decorative orbiting defender ships.
-DEFENDER_ORBIT_RADIUS = 25.0
+SHOT_LIFETIME = 0.16
+MAX_VISIBLE_SHOTS = 300
+
+DEFENDER_ORBIT_RADIUS = 26.0
 DEFENDER_ORBIT_SPEED = 1.5
 DEFENDER_COUNT = 6
+
+# Production is divided among an empire's systems.
+# This keeps total production approximately stable as territory grows.
+PRODUCTION_CONCENTRATION = 1.0
 
 AI_THINK_INTERVAL = 0.7
 AI_ATTACK_THRESHOLD = 20.0
