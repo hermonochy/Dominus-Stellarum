@@ -7,8 +7,16 @@ from typing import Optional
 import pygame
 
 from . import config
-from .combat import resolve_fleet_arrival
-from .models import Empire, Fleet, StarSystem
+from .combat import (
+    resolve_fleet_arrival,
+    resolve_fleet_combat,
+)
+from .models import (
+    CombatShot,
+    Empire,
+    Fleet,
+    StarSystem,
+)
 
 
 class Galaxy:
@@ -21,6 +29,7 @@ class Galaxy:
         self.systems: list[StarSystem] = []
         self.empires: list[Empire] = []
         self.fleets: list[Fleet] = []
+        self.combat_shots: list[CombatShot] = []
 
         self.edges: set[tuple[int, int]] = set()
         self.neighbors: dict[int, set[int]] = {}
@@ -33,6 +42,7 @@ class Galaxy:
         self.systems.clear()
         self.empires.clear()
         self.fleets.clear()
+        self.combat_shots.clear()
         self.edges.clear()
         self.neighbors.clear()
 
@@ -55,6 +65,7 @@ class Galaxy:
         positions: list[pygame.Vector2] = []
 
         attempts = 0
+
         min_y = config.TOP_BAR_HEIGHT + 40
         max_y = (
             config.HEIGHT
@@ -79,11 +90,13 @@ class Galaxy:
                 ),
             )
 
-            if all(
+            valid = all(
                 position.distance_to(other)
                 >= config.MIN_STAR_DISTANCE
                 for other in positions
-            ):
+            )
+
+            if valid:
                 positions.append(position)
 
         while len(positions) < config.STAR_COUNT:
@@ -168,16 +181,15 @@ class Galaxy:
                 )
             )
 
-            self.systems.append(
-                StarSystem(
-                    id=system_id,
-                    name=name,
-                    pos=position,
-                    production=production,
-                    ships=ships,
-                )
+            system = StarSystem(
+                id=system_id,
+                name=name,
+                pos=position,
+                production=production,
+                ships=ships,
             )
 
+            self.systems.append(system)
             self.neighbors[system_id] = set()
 
     def _generate_system_name(
@@ -221,7 +233,9 @@ class Galaxy:
                 )
 
         for first in self.systems:
-            for second in self.systems[first.id + 1:]:
+            for second in self.systems[
+                first.id + 1:
+            ]:
                 distance = first.pos.distance_to(
                     second.pos
                 )
@@ -333,7 +347,9 @@ class Galaxy:
         return components
 
     def _create_empires(self) -> None:
-        for empire_id in range(config.EMPIRE_COUNT):
+        for empire_id in range(
+            config.EMPIRE_COUNT
+        ):
             name = config.EMPIRE_NAMES[
                 empire_id
                 % len(config.EMPIRE_NAMES)
@@ -344,17 +360,17 @@ class Galaxy:
                 % len(config.EMPIRE_COLORS)
             ]
 
-            self.empires.append(
-                Empire(
-                    id=empire_id,
-                    name=name,
-                    color=color,
-                    is_player=(
-                        empire_id
-                        == config.PLAYER_ID
-                    ),
-                )
+            empire = Empire(
+                id=empire_id,
+                name=name,
+                color=color,
+                is_player=(
+                    empire_id
+                    == config.PLAYER_ID
+                ),
             )
+
+            self.empires.append(empire)
 
     def _place_empires(self) -> None:
         first_system = self.rng.randrange(
@@ -373,8 +389,12 @@ class Galaxy:
             candidate = max(
                 candidates,
                 key=lambda system_id: min(
-                    self.systems[system_id].pos.distance_to(
-                        self.systems[chosen_id].pos
+                    self.systems[
+                        system_id
+                    ].pos.distance_to(
+                        self.systems[
+                            chosen_id
+                        ].pos
                     )
                     for chosen_id in chosen
                 ),
@@ -390,12 +410,17 @@ class Galaxy:
             system.owner_id = empire.id
             system.ships = config.STARTING_SHIPS
 
-    def _produce_ships(self, dt: float) -> None:
+    def _produce_ships(
+        self,
+        dt: float,
+    ) -> None:
         for system in self.systems:
             if system.owner_id is None:
                 continue
 
-            system.ships += system.production * dt
+            system.ships += (
+                system.production * dt
+            )
 
     def shortest_path(
         self,
@@ -450,6 +475,12 @@ class Galaxy:
         self,
         source_id: int,
     ) -> set[int]:
+        if (
+            source_id < 0
+            or source_id >= len(self.systems)
+        ):
+            return set()
+
         reachable: set[int] = set()
         queue = [source_id]
 
@@ -493,10 +524,10 @@ class Galaxy:
         if route is None or len(route) < 2:
             return False
 
+        fraction = send_percent / 100.0
+
         amount = math.floor(
-            source.ships
-            * send_percent
-            / 100.0
+            source.ships * fraction
         )
 
         if amount < 1:
@@ -504,20 +535,37 @@ class Galaxy:
 
         source.ships -= amount
 
-        self.fleets.append(
-            Fleet(
-                id=self.next_fleet_id,
-                owner_id=source.owner_id,
-                source_id=source_id,
-                target_id=target_id,
-                ships=float(amount),
-                route=route,
-                route_index=1,
-            )
+        fleet = Fleet(
+            id=self.next_fleet_id,
+            owner_id=source.owner_id,
+            source_id=source_id,
+            target_id=target_id,
+            ships=float(amount),
+            route=route,
+            route_index=1,
         )
 
         self.next_fleet_id += 1
+        self.fleets.append(fleet)
+
         return True
+
+    def fleet_position(
+        self,
+        fleet: Fleet,
+    ) -> pygame.Vector2:
+        source = self.systems[
+            fleet.source_id
+        ]
+
+        target = self.systems[
+            fleet.target_id
+        ]
+
+        return source.pos.lerp(
+            target.pos,
+            min(1.0, fleet.progress),
+        )
 
     def _update_fleets(
         self,
@@ -525,7 +573,16 @@ class Galaxy:
     ) -> None:
         arrived: list[Fleet] = []
 
-        for fleet in self.fleets:
+        for shot in self.combat_shots:
+            shot.lifetime -= dt
+
+        self.combat_shots = [
+            shot
+            for shot in self.combat_shots
+            if shot.lifetime > 0.0
+        ]
+
+        for fleet in list(self.fleets):
             source = self.systems[
                 fleet.source_id
             ]
@@ -546,6 +603,46 @@ class Galaxy:
                 * dt
                 / distance
             )
+
+            position = self.fleet_position(
+                fleet
+            )
+
+            attacker_color = self.empires[
+                fleet.owner_id
+            ].color
+
+            if target.owner_id is None:
+                defender_color = (
+                    config.NEUTRAL_COLOR
+                )
+            else:
+                defender_color = self.empires[
+                    target.owner_id
+                ].color
+
+            new_shots = resolve_fleet_combat(
+                fleet=fleet,
+                fleet_position=position,
+                target=target,
+                dt=dt,
+                attacker_color=attacker_color,
+                defender_color=defender_color,
+            )
+
+            self.combat_shots.extend(new_shots)
+
+            if len(self.combat_shots) > (
+                config.MAX_VISIBLE_SHOTS
+            ):
+                self.combat_shots = self.combat_shots[
+                    -config.MAX_VISIBLE_SHOTS:
+                ]
+
+            if fleet.ships <= 0.01:
+                if fleet in self.fleets:
+                    self.fleets.remove(fleet)
+                continue
 
             if fleet.progress < 1.0:
                 continue

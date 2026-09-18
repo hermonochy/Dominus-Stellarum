@@ -1,5 +1,5 @@
-WIDTH = 1280
-HEIGHT = 800
+WIDTH = 3000
+HEIGHT = 1500
 FPS = 60
 
 TOP_BAR_HEIGHT = 72
@@ -43,9 +43,22 @@ PRODUCTION_MAX = 1.25
 
 FLEET_SPEED = 100.0
 
-# Both sides fire during combat.
-ATTACKER_FIREPOWER = 0.75
-DEFENDER_FIREPOWER = 0.80
+# Distance from a defended system at which combat begins.
+COMBAT_RANGE = 115.0
+
+# Continuous combat damage per ship per second.
+# Defenders have a small defensive advantage.
+ATTACKER_DAMAGE_PER_SHIP = 0.18
+DEFENDER_DAMAGE_PER_SHIP = 0.28
+
+# Combat visual effects.
+SHOT_LIFETIME = 0.12
+MAX_VISIBLE_SHOTS = 120
+
+# Decorative orbiting defender ships.
+DEFENDER_ORBIT_RADIUS = 25.0
+DEFENDER_ORBIT_SPEED = 1.5
+DEFENDER_COUNT = 6
 
 AI_THINK_INTERVAL = 0.7
 AI_ATTACK_THRESHOLD = 20.0

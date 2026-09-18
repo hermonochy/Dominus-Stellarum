@@ -33,3 +33,12 @@ class Fleet:
     progress: float = 0.0
     route: tuple[int, ...] = ()
     route_index: int = 1
+
+
+@dataclass
+class CombatShot:
+    start: pygame.Vector2
+    end: pygame.Vector2
+    color: tuple[int, int, int]
+    lifetime: float
+    max_lifetime: float

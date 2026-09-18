@@ -1,3 +1,5 @@
+import math
+
 import pygame
 
 from . import config
@@ -12,10 +14,30 @@ class Renderer:
     ):
         self.screen = screen
 
-        self.font = pygame.font.Font(None, 22)
-        self.small_font = pygame.font.Font(None, 18)
-        self.tiny_font = pygame.font.Font(None, 16)
-        self.huge_font = pygame.font.Font(None, 64)
+        self.font = pygame.font.Font(
+            None,
+            22,
+        )
+
+        self.small_font = pygame.font.Font(
+            None,
+            18,
+        )
+
+        self.tiny_font = pygame.font.Font(
+            None,
+            16,
+        )
+
+        self.large_font = pygame.font.Font(
+            None,
+            44,
+        )
+
+        self.huge_font = pygame.font.Font(
+            None,
+            64,
+        )
 
     def draw(
         self,
@@ -24,37 +46,77 @@ class Renderer:
         paused: bool,
         speed: float,
     ) -> None:
-        self.screen.fill(config.BACKGROUND)
+        self.screen.fill(
+            config.BACKGROUND
+        )
 
-        self._draw_background_stars(galaxy)
-        self._draw_hyperlanes(galaxy, player)
-        self._draw_fleets(galaxy)
-        self._draw_systems(galaxy, player)
+        self._draw_background_stars(
+            galaxy
+        )
+
+        self._draw_hyperlanes(
+            galaxy,
+            player,
+        )
+
+        self._draw_defender_orbits(
+            galaxy
+        )
+
+        self._draw_fleets(
+            galaxy
+        )
+
+        self._draw_combat_shots(
+            galaxy
+        )
+
+        self._draw_systems(
+            galaxy,
+            player,
+        )
+
         self._draw_top_bar(
             galaxy,
             player,
             paused,
             speed,
         )
-        self._draw_bottom_bar(galaxy, player)
-        self._draw_game_state(galaxy)
+
+        self._draw_bottom_bar(
+            galaxy,
+            player,
+        )
+
+        self._draw_game_state(
+            galaxy
+        )
 
     def _draw_background_stars(
         self,
         galaxy: Galaxy,
     ) -> None:
         rng = galaxy.rng
+
         state = rng.getstate()
         rng.seed(12345)
 
         for _ in range(160):
-            x = rng.randint(0, config.WIDTH - 1)
+            x = rng.randint(
+                0,
+                config.WIDTH - 1,
+            )
+
             y = rng.randint(
                 config.TOP_BAR_HEIGHT,
                 config.HEIGHT
                 - config.BOTTOM_BAR_HEIGHT,
             )
-            brightness = rng.randint(35, 90)
+
+            brightness = rng.randint(
+                35,
+                90,
+            )
 
             pygame.draw.circle(
                 self.screen,
@@ -74,68 +136,150 @@ class Renderer:
         galaxy: Galaxy,
         player: PlayerController,
     ) -> None:
-        selected = player.selected_system_id
-        valid_targets = player.valid_target_ids()
+        selected = (
+            player.selected_system_id
+        )
+
+        valid_targets = (
+            player.valid_target_ids()
+        )
 
         for first_id, second_id in galaxy.edges:
-            first = galaxy.systems[first_id]
-            second = galaxy.systems[second_id]
+            first = galaxy.systems[
+                first_id
+            ]
+
+            second = galaxy.systems[
+                second_id
+            ]
 
             highlighted = (
                 selected is not None
                 and (
                     (
                         first_id == selected
-                        and second_id in valid_targets
+                        and second_id
+                        in valid_targets
                     )
                     or (
                         second_id == selected
-                        and first_id in valid_targets
+                        and first_id
+                        in valid_targets
                     )
                 )
             )
 
+            color = (
+                config.LANE_HIGHLIGHT
+                if highlighted
+                else config.LANE_COLOR
+            )
+
+            width = 3 if highlighted else 1
+
             pygame.draw.line(
                 self.screen,
-                (
-                    config.LANE_HIGHLIGHT
-                    if highlighted
-                    else config.LANE_COLOR
-                ),
+                color,
                 first.pos,
                 second.pos,
-                3 if highlighted else 1,
+                width,
             )
+
+    def _draw_defender_orbits(
+        self,
+        galaxy: Galaxy,
+    ) -> None:
+        current_time = (
+            pygame.time.get_ticks()
+            / 1000.0
+        )
+
+        for system in galaxy.systems:
+            if system.owner_id is None:
+                continue
+
+            empire = galaxy.empires[
+                system.owner_id
+            ]
+
+            orbit_color = (
+                max(0, empire.color[0] // 3),
+                max(0, empire.color[1] // 3),
+                max(0, empire.color[2] // 3),
+            )
+
+            pygame.draw.circle(
+                self.screen,
+                orbit_color,
+                system.pos,
+                int(
+                    config.DEFENDER_ORBIT_RADIUS
+                ),
+                1,
+            )
+
+            for index in range(
+                config.DEFENDER_COUNT
+            ):
+                angle = (
+                    current_time
+                    * config.DEFENDER_ORBIT_SPEED
+                    + (
+                        index
+                        * math.tau
+                        / config.DEFENDER_COUNT
+                    )
+                )
+
+                defender_position = (
+                    system.pos
+                    + pygame.Vector2(
+                        math.cos(angle),
+                        math.sin(angle),
+                    )
+                    * config.DEFENDER_ORBIT_RADIUS
+                )
+
+                pygame.draw.circle(
+                    self.screen,
+                    empire.color,
+                    defender_position,
+                    3,
+                )
+
+                pygame.draw.circle(
+                    self.screen,
+                    config.STAR_CORE_COLOR,
+                    defender_position,
+                    4,
+                    1,
+                )
 
     def _draw_fleets(
         self,
         galaxy: Galaxy,
     ) -> None:
         for fleet in galaxy.fleets:
-            source = galaxy.systems[
-                fleet.source_id
-            ]
+            position = galaxy.fleet_position(
+                fleet
+            )
+
             target = galaxy.systems[
                 fleet.target_id
             ]
 
-            position = source.pos.lerp(
-                target.pos,
-                min(1.0, fleet.progress),
-            )
-
-            color = galaxy.empires[
+            empire = galaxy.empires[
                 fleet.owner_id
-            ].color
+            ]
 
             pygame.draw.circle(
                 self.screen,
-                color,
+                empire.color,
                 position,
                 5,
             )
 
-            direction = target.pos - source.pos
+            direction = target.pos - position
 
             if direction.length_squared() > 0:
                 direction = direction.normalize()
@@ -145,12 +289,17 @@ class Renderer:
                     direction.x,
                 )
 
-                tip = position + direction * 9
+                tip = (
+                    position
+                    + direction * 9
+                )
+
                 left = (
                     position
                     - direction * 5
                     + perpendicular * 5
                 )
+
                 right = (
                     position
                     - direction * 5
@@ -159,8 +308,12 @@ class Renderer:
 
                 pygame.draw.polygon(
                     self.screen,
-                    color,
-                    [tip, left, right],
+                    empire.color,
+                    [
+                        tip,
+                        left,
+                        right,
+                    ],
                 )
 
             label = self.tiny_font.render(
@@ -177,21 +330,60 @@ class Renderer:
                 ),
             )
 
+    def _draw_combat_shots(
+        self,
+        galaxy: Galaxy,
+    ) -> None:
+        for shot in galaxy.combat_shots:
+            alpha_ratio = (
+                shot.lifetime
+                / shot.max_lifetime
+            )
+
+            alpha_ratio = max(
+                0.0,
+                min(1.0, alpha_ratio),
+            )
+
+            color = tuple(
+                int(channel * alpha_ratio)
+                for channel in shot.color
+            )
+
+            pygame.draw.line(
+                self.screen,
+                color,
+                shot.start,
+                shot.end,
+                3,
+            )
+
+            pygame.draw.circle(
+                self.screen,
+                config.STAR_CORE_COLOR,
+                shot.end,
+                3,
+            )
+
     def _draw_systems(
         self,
         galaxy: Galaxy,
         player: PlayerController,
     ) -> None:
-        valid_targets = player.valid_target_ids()
+        valid_targets = (
+            player.valid_target_ids()
+        )
 
         for system in galaxy.systems:
             if system.owner_id is None:
                 color = config.NEUTRAL_COLOR
                 radius = config.STAR_RADIUS
             else:
-                color = galaxy.empires[
+                empire = galaxy.empires[
                     system.owner_id
-                ].color
+                ]
+
+                color = empire.color
                 radius = config.OWNED_STAR_RADIUS
 
             if system.id in valid_targets:
@@ -203,7 +395,10 @@ class Renderer:
                     1,
                 )
 
-            if system.id == player.hovered_system_id:
+            if (
+                system.id
+                == player.hovered_system_id
+            ):
                 pygame.draw.circle(
                     self.screen,
                     (190, 200, 220),
@@ -212,7 +407,10 @@ class Renderer:
                     1,
                 )
 
-            if system.id == player.selected_system_id:
+            if (
+                system.id
+                == player.selected_system_id
+            ):
                 pygame.draw.circle(
                     self.screen,
                     config.SELECTION_COLOR,
@@ -267,7 +465,11 @@ class Renderer:
             ),
         )
 
-        state = "PAUSED" if paused else "RUNNING"
+        state = (
+            "PAUSED"
+            if paused
+            else "RUNNING"
+        )
 
         title = self.font.render(
             "HYPERLANE WARS",
@@ -275,7 +477,10 @@ class Renderer:
             config.TEXT,
         )
 
-        self.screen.blit(title, (18, 12))
+        self.screen.blit(
+            title,
+            (18, 12),
+        )
 
         status = self.small_font.render(
             (
@@ -287,10 +492,15 @@ class Renderer:
             config.MUTED_TEXT,
         )
 
-        self.screen.blit(status, (18, 39))
+        self.screen.blit(
+            status,
+            (18, 39),
+        )
 
-        player_systems = galaxy.empire_system_count(
-            config.PLAYER_ID
+        player_systems = (
+            galaxy.empire_system_count(
+                config.PLAYER_ID
+            )
         )
 
         player_ships = int(
@@ -301,8 +511,10 @@ class Renderer:
 
         stats = self.small_font.render(
             (
-                f"Your systems: {player_systems}    "
-                f"Your ships: {player_ships}"
+                f"Your systems: "
+                f"{player_systems}    "
+                f"Your ships: "
+                f"{player_ships}"
             ),
             True,
             galaxy.empires[
@@ -310,11 +522,16 @@ class Renderer:
             ].color,
         )
 
+        stats_rect = stats.get_rect(
+            midtop=(
+                config.WIDTH // 2,
+                14,
+            )
+        )
+
         self.screen.blit(
             stats,
-            stats.get_rect(
-                midtop=(config.WIDTH // 2, 14)
-            ),
+            stats_rect,
         )
 
         controls = self.tiny_font.render(
@@ -330,11 +547,16 @@ class Renderer:
             config.MUTED_TEXT,
         )
 
+        controls_rect = controls.get_rect(
+            midtop=(
+                config.WIDTH // 2,
+                40,
+            )
+        )
+
         self.screen.blit(
             controls,
-            controls.get_rect(
-                midtop=(config.WIDTH // 2, 40)
-            ),
+            controls_rect,
         )
 
     def _draw_bottom_bar(
@@ -342,7 +564,10 @@ class Renderer:
         galaxy: Galaxy,
         player: PlayerController,
     ) -> None:
-        y = config.HEIGHT - config.BOTTOM_BAR_HEIGHT
+        y = (
+            config.HEIGHT
+            - config.BOTTOM_BAR_HEIGHT
+        )
 
         pygame.draw.rect(
             self.screen,
@@ -369,7 +594,10 @@ class Renderer:
             y,
         )
 
-        self._draw_empire_panel(galaxy, y)
+        self._draw_empire_panel(
+            galaxy,
+            y,
+        )
 
         if player.message:
             message = self.small_font.render(
@@ -378,14 +606,16 @@ class Renderer:
                 config.SELECTION_COLOR,
             )
 
+            rectangle = message.get_rect(
+                midbottom=(
+                    config.WIDTH // 2,
+                    config.HEIGHT - 8,
+                )
+            )
+
             self.screen.blit(
                 message,
-                message.get_rect(
-                    midbottom=(
-                        config.WIDTH // 2,
-                        config.HEIGHT - 8,
-                    )
-                ),
+                rectangle,
             )
 
     def _draw_selection_panel(
@@ -394,16 +624,26 @@ class Renderer:
         player: PlayerController,
         y: int,
     ) -> None:
-        selected_id = player.selected_system_id
+        selected_id = (
+            player.selected_system_id
+        )
 
         if selected_id is None:
             lines = [
                 "No system selected",
-                "Left-click one of your blue systems.",
-                "Right-click any reachable system to send a fleet.",
+                (
+                    "Left-click one of "
+                    "your blue systems."
+                ),
+                (
+                    "Right-click any reachable "
+                    "system to send a fleet."
+                ),
             ]
         else:
-            system = galaxy.systems[selected_id]
+            system = galaxy.systems[
+                selected_id
+            ]
 
             reachable = len(
                 galaxy.reachable_system_ids(
@@ -413,11 +653,26 @@ class Renderer:
 
             lines = [
                 system.name,
-                f"Ships: {int(system.ships)}",
-                f"Production: {system.production:.2f}/s",
-                f"Connections: {len(galaxy.neighbors[system.id])}",
-                f"Reachable systems: {reachable}",
-                f"Fleet order: {player.send_percent}%",
+                (
+                    f"Ships: "
+                    f"{int(system.ships)}"
+                ),
+                (
+                    f"Production: "
+                    f"{system.production:.2f}/s"
+                ),
+                (
+                    f"Connections: "
+                    f"{len(galaxy.neighbors[system.id])}"
+                ),
+                (
+                    f"Reachable systems: "
+                    f"{reachable}"
+                ),
+                (
+                    f"Fleet order: "
+                    f"{player.send_percent}%"
+                ),
             ]
 
         for index, line in enumerate(lines):
@@ -443,7 +698,7 @@ class Renderer:
                 surface,
                 (
                     18,
-                    y + 10 + index * 20,
+                    y + 10 + index * 19,
                 ),
             )
 
@@ -462,14 +717,19 @@ class Renderer:
 
         self.screen.blit(
             heading,
-            (x, y + 12),
+            (
+                x,
+                y + 12,
+            ),
         )
 
         for index, empire in enumerate(
             galaxy.empires
         ):
-            systems = galaxy.empire_system_count(
-                empire.id
+            systems = (
+                galaxy.empire_system_count(
+                    empire.id
+                )
             )
 
             ships = int(
@@ -484,7 +744,11 @@ class Renderer:
                 else config.MUTED_TEXT
             )
 
-            marker = "YOU" if empire.is_player else "AI"
+            marker = (
+                "YOU"
+                if empire.is_player
+                else "AI"
+            )
 
             text = (
                 f"{empire.name} [{marker}]  "
@@ -540,8 +804,14 @@ class Renderer:
             pygame.SRCALPHA,
         )
 
-        overlay.fill((0, 0, 0, 175))
-        self.screen.blit(overlay, (0, 0))
+        overlay.fill(
+            (0, 0, 0, 175)
+        )
+
+        self.screen.blit(
+            overlay,
+            (0, 0),
+        )
 
         title = self.huge_font.render(
             heading,
@@ -549,14 +819,16 @@ class Renderer:
             color,
         )
 
+        title_rect = title.get_rect(
+            center=(
+                config.WIDTH // 2,
+                config.HEIGHT // 2 - 35,
+            )
+        )
+
         self.screen.blit(
             title,
-            title.get_rect(
-                center=(
-                    config.WIDTH // 2,
-                    config.HEIGHT // 2 - 35,
-                )
-            ),
+            title_rect,
         )
 
         description = self.font.render(
@@ -565,14 +837,16 @@ class Renderer:
             config.TEXT,
         )
 
+        description_rect = description.get_rect(
+            center=(
+                config.WIDTH // 2,
+                config.HEIGHT // 2 + 20,
+            )
+        )
+
         self.screen.blit(
             description,
-            description.get_rect(
-                center=(
-                    config.WIDTH // 2,
-                    config.HEIGHT // 2 + 20,
-                )
-            ),
+            description_rect,
         )
 
         restart = self.small_font.render(
@@ -581,12 +855,14 @@ class Renderer:
             config.MUTED_TEXT,
         )
 
+        restart_rect = restart.get_rect(
+            center=(
+                config.WIDTH // 2,
+                config.HEIGHT // 2 + 55,
+            )
+        )
+
         self.screen.blit(
             restart,
-            restart.get_rect(
-                center=(
-                    config.WIDTH // 2,
-                    config.HEIGHT // 2 + 55,
-                )
-            ),
+            restart_rect,
         )
