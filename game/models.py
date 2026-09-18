@@ -31,3 +31,5 @@ class Fleet:
     target_id: int
     ships: float
     progress: float = 0.0
+    route: tuple[int, ...] = ()
+    route_index: int = 1

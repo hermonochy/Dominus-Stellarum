@@ -11,9 +11,7 @@ class AIController:
         galaxy: Galaxy,
     ):
         self.galaxy = galaxy
-
         self.rng = random.Random()
-
         self.timer = 0.0
 
     def update(
@@ -22,67 +20,57 @@ class AIController:
     ) -> None:
         self.timer += dt
 
-        if (
-            self.timer
-            < config.AI_THINK_INTERVAL
-        ):
+        if self.timer < config.AI_THINK_INTERVAL:
             return
 
-        self.timer -= (
-            config.AI_THINK_INTERVAL
-        )
+        self.timer -= config.AI_THINK_INTERVAL
 
         for empire in self.galaxy.empires:
-            if empire.is_player:
+            if empire.is_player or not empire.alive:
                 continue
 
-            if not empire.alive:
-                continue
-
-            self._update_empire(
-                empire.id
-            )
+            self._update_empire(empire.id)
 
     def _update_empire(
         self,
         empire_id: int,
     ) -> None:
-        systems = (
-            self.galaxy.owned_systems(
-                empire_id
-            )
+        systems = self.galaxy.owned_systems(
+            empire_id
         )
 
         self.rng.shuffle(systems)
 
         for source in systems:
-            if (
-                source.ships
-                < config.AI_ATTACK_THRESHOLD
+            if source.ships < (
+                config.AI_ATTACK_THRESHOLD
+                + config.AI_RESERVE_SHIPS
             ):
                 continue
 
-            enemies = (
-                self._enemy_neighbors(
-                    source,
-                    empire_id,
-                )
+            enemies = self._enemy_neighbors(
+                source,
+                empire_id,
             )
 
             if enemies:
-                target = (
-                    self._choose_attack_target(
-                        enemies
-                    )
+                target = self._choose_attack_target(
+                    enemies
+                )
+
+                available_ships = max(
+                    0.0,
+                    source.ships
+                    - config.AI_RESERVE_SHIPS,
                 )
 
                 if self._should_attack(
-                    source,
+                    available_ships,
                     target,
                 ):
                     send_percent = (
                         self._attack_percentage(
-                            source,
+                            available_ships,
                             target,
                         )
                     )
@@ -95,7 +83,10 @@ class AIController:
 
                 continue
 
-            if self.rng.random() < 0.15:
+            if (
+                self.rng.random()
+                < config.AI_FRONTIER_REINFORCE_CHANCE
+            ):
                 self._reinforce_frontier(
                     source,
                     empire_id,
@@ -108,12 +99,10 @@ class AIController:
     ) -> list[StarSystem]:
         return [
             system
-            for system
-            in self.galaxy.get_neighbors(
+            for system in self.galaxy.get_neighbors(
                 source.id
             )
-            if system.owner_id
-            != empire_id
+            if system.owner_id != empire_id
         ]
 
     def _choose_attack_target(
@@ -131,65 +120,55 @@ class AIController:
     ) -> float:
         score = target.ships
 
-        score -= (
-            target.production
-            * 4.0
-        )
+        # High-production systems are more valuable.
+        score -= target.production * 6.0
 
+        # Owned systems are slightly harder targets.
         if target.owner_id is not None:
-            score += 5.0
+            score += 8.0
 
         return score
 
     def _should_attack(
         self,
-        source: StarSystem,
+        available_ships: float,
         target: StarSystem,
     ) -> bool:
-        if target.owner_id is None:
-            required_ratio = 1.15
-        else:
-            required_ratio = 1.35
-
         ratio = (
-            source.ships
-            / max(
-                1.0,
-                target.ships,
-            )
+            available_ships
+            / max(1.0, target.ships)
         )
 
-        if ratio >= required_ratio:
+        if ratio >= config.AI_MIN_ATTACK_RATIO:
             return True
 
+        # The AI can take an occasional calculated risk,
+        # but avoids hopeless attacks.
         return (
-            self.rng.random()
-            < 0.06
+            ratio >= 1.05
+            and self.rng.random() < 0.025
         )
 
     def _attack_percentage(
         self,
-        source: StarSystem,
+        available_ships: float,
         target: StarSystem,
     ) -> int:
         ratio = (
             target.ships
-            / max(
-                1.0,
-                source.ships,
-            )
+            / max(1.0, available_ships)
         )
 
         if ratio < 0.25:
-            return 40
+            return 50
 
         if ratio < 0.5:
-            return 55
+            return 65
 
         if ratio < 0.75:
-            return 70
+            return 80
 
-        return 80
+        return 90
 
     def _reinforce_frontier(
         self,
@@ -198,18 +177,15 @@ class AIController:
     ) -> None:
         friendly_neighbors = [
             system
-            for system
-            in self.galaxy.get_neighbors(
+            for system in self.galaxy.get_neighbors(
                 source.id
             )
-            if system.owner_id
-            == empire_id
+            if system.owner_id == empire_id
         ]
 
         frontier = [
             system
-            for system
-            in friendly_neighbors
+            for system in friendly_neighbors
             if self._is_frontier(
                 system,
                 empire_id,
@@ -221,14 +197,15 @@ class AIController:
 
         target = min(
             frontier,
-            key=lambda system:
-            system.ships,
+            key=lambda system: system.ships,
         )
 
-        if (
-            target.ships
-            >= source.ships
-        ):
+        available_ships = (
+            source.ships
+            - config.AI_RESERVE_SHIPS
+        )
+
+        if target.ships >= available_ships:
             return
 
         self.galaxy.launch_fleet(
@@ -243,10 +220,8 @@ class AIController:
         empire_id: int,
     ) -> bool:
         return any(
-            neighbor.owner_id
-            != empire_id
-            for neighbor
-            in self.galaxy.get_neighbors(
+            neighbor.owner_id != empire_id
+            for neighbor in self.galaxy.get_neighbors(
                 system.id
             )
         )
