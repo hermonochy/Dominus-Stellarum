@@ -725,6 +725,7 @@ class Galaxy:
                 ships=float(amount),
                 route=route,
                 route_index=1,
+                segment_progress=0.0,
             )
         )
 
@@ -748,104 +749,96 @@ class Galaxy:
             min(1.0, fleet.progress),
         )
 
-    def _update_fleets(
-        self,
-        dt: float,
-    ) -> None:
+    def _update_fleets(self, dt: float) -> None:
         arrived: list[Fleet] = []
 
+        # Update combat shots
         for shot in self.combat_shots:
             shot.lifetime -= dt
 
         self.combat_shots = [
-            shot
-            for shot in self.combat_shots
-            if shot.lifetime > 0.0
+            shot for shot in self.combat_shots if shot.lifetime > 0.0
         ]
 
         for fleet in list(self.fleets):
-            source = self.systems[
-                fleet.source_id
-            ]
-
-            target = self.systems[
-                fleet.target_id
-            ]
-
-            distance = max(
-                1.0,
-                source.pos.distance_to(
-                    target.pos
-                ),
-            )
-
-            fleet.progress += (
-                config.FLEET_SPEED
-                * dt
-                / distance
-            )
-
-            position = self.fleet_position(
-                fleet
-            )
-
-            if target.owner_id is not None:
-                new_shots = resolve_fleet_combat(
-                    fleet=fleet,
-                    fleet_position=position,
-                    target=target,
-                    dt=dt,
-                    attacker_color=self.empires[
-                        fleet.owner_id
-                    ].color,
-                    defender_color=self.empires[
-                        target.owner_id
-                    ].color,
-                    rng=self.rng,
+            # Get current waypoint (current node in route)
+            current_id = fleet.route[fleet.route_index - 1]
+            next_id = fleet.route[fleet.route_index] if fleet.route_index < len(fleet.route) else fleet.route[-1]
+            
+            current_system = self.systems[current_id]
+            next_system = self.systems[next_id]
+            
+            # Calculate distance to next hop
+            segment_distance = current_system.pos.distance_to(next_system.pos)
+            
+            # Update progress along current segment
+            fleet.segment_progress += (config.FLEET_SPEED * dt) / max(1.0, segment_distance)
+            
+            # Interpolate position along current segment
+            if fleet.segment_progress <= 1.0:
+                fleet.position = current_system.pos.lerp(
+                    next_system.pos,
+                    min(1.0, fleet.segment_progress)
                 )
+            else:
+                # Reached next hop
+                fleet.position = next_system.pos
+                
+                # Check if we need to continue or arrive
+                if fleet.route_index >= len(fleet.route) - 1:
+                    # Final destination reached
+                    fleet.progress = 1.0
+                    arrived.append(fleet)
+                else:
+                    # Move to next hop
+                    fleet.route_index += 1
+                    fleet.segment_progress = 0.0
+                    
+                    # Check for combat at intermediate systems
+                    intermediate_system = self.systems[next_id]
+                    if intermediate_system.owner_id != fleet.owner_id and intermediate_system.owner_id is not None:
+                        new_shots = resolve_fleet_combat(
+                            fleet=fleet,
+                            fleet_position=fleet.position,
+                            target=intermediate_system,
+                            dt=dt,
+                            attacker_color=self.empires[fleet.owner_id].color,
+                            defender_color=self.empires[intermediate_system.owner_id].color,
+                            rng=self.rng,
+                        )
+                        self.combat_shots.extend(new_shots)
+            
+            # Combat with destination system when close enough
+            dest_system = self.systems[fleet.target_id]
+            if dest_system.owner_id is not None and dest_system.owner_id != fleet.owner_id:
+                distance_from_dest = fleet.position.distance_to(dest_system.pos)
+                if distance_from_dest <= config.COMBAT_RANGE:
+                    new_shots = resolve_fleet_combat(
+                        fleet=fleet,
+                        fleet_position=fleet.position,
+                        target=dest_system,
+                        dt=dt,
+                        attacker_color=self.empires[fleet.owner_id].color,
+                        defender_color=self.empires[dest_system.owner_id].color,
+                        rng=self.rng,
+                    )
+                    self.combat_shots.extend(new_shots)
 
-                self.combat_shots.extend(
-                    new_shots
-                )
-
-            if len(self.combat_shots) > (
-                config.MAX_VISIBLE_SHOTS
-            ):
-                self.combat_shots = self.combat_shots[
-                    -config.MAX_VISIBLE_SHOTS:
-                ]
-
+            # Remove destroyed fleets
             if fleet.ships <= 0.01:
                 if fleet in self.fleets:
                     self.fleets.remove(fleet)
                 continue
+            
+            # Limit visible combat shots
+            if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
+                self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
 
-            if fleet.progress < 1.0:
-                continue
-
-            if (
-                fleet.route_index
-                < len(fleet.route) - 1
-            ):
-                fleet.source_id = fleet.target_id
-                fleet.route_index += 1
-                fleet.target_id = fleet.route[
-                    fleet.route_index
-                ]
-                fleet.progress = 0.0
-            else:
-                arrived.append(fleet)
-
+        # Process fleet arrivals at destinations
         for fleet in arrived:
-            target = self.systems[
-                fleet.target_id
-            ]
-
-            resolve_fleet_arrival(
-                fleet,
-                target,
-            )
-
+            target = self.systems[fleet.target_id]
+            resolve_fleet_arrival(fleet, target)
+            
             if fleet in self.fleets:
                 self.fleets.remove(fleet)
 

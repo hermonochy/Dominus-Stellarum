@@ -226,76 +226,69 @@ class Renderer:
                     1,
                 )
 
-    def _draw_fleets(
-        self,
-        galaxy: Galaxy,
-    ) -> None:
+    def _draw_fleets(self, galaxy: Galaxy) -> None:
         for fleet in galaxy.fleets:
-            position = galaxy.fleet_position(
-                fleet
-            )
-
-            target = galaxy.systems[
-                fleet.target_id
-            ]
-
-            color = galaxy.empires[
-                fleet.owner_id
-            ].color
-
+            position = fleet.position
+            target = galaxy.systems[fleet.target_id]
+            color = galaxy.empires[fleet.owner_id].color
+            
+            # Draw trailing effect
+            trail_length = min(15, int(fleet.ships))
+            for i in range(trail_length):
+                alpha = (255 - i * 15) // max(1, trail_length)
+                trail_pos = position.lerp(
+                    target.pos,
+                    min(1.0, (i + fleet.segment_progress) / max(1, trail_length + 1))
+                )
+                
+                faded_color = tuple(
+                    min(255, c + (255 - c) * (alpha / 255))
+                    for c in color
+                )
+                
+                trail_radius = max(2, 5 - i // 4)
+                pygame.draw.circle(
+                    self.screen,
+                    faded_color,
+                    trail_pos,
+                    trail_radius,
+                )
+            
+            # Main fleet ship
             pygame.draw.circle(
                 self.screen,
                 color,
                 position,
-                5,
+                6,
             )
-
+            
+            # Direction indicator
             direction = target.pos - position
-
+            
             if direction.length_squared() > 0:
                 direction = direction.normalize()
-
-                perpendicular = pygame.Vector2(
-                    -direction.y,
-                    direction.x,
-                )
-
-                tip = position + direction * 9
-
-                left = (
-                    position
-                    - direction * 5
-                    + perpendicular * 5
-                )
-
-                right = (
-                    position
-                    - direction * 5
-                    - perpendicular * 5
-                )
-
+                perpendicular = pygame.Vector2(-direction.y, direction.x)
+                
+                tip = position + direction * 12
+                left = position - direction * 6 + perpendicular * 6
+                right = position - direction * 6 - perpendicular * 6
+                
                 pygame.draw.polygon(
                     self.screen,
                     color,
-                    [
-                        tip,
-                        left,
-                        right,
-                    ],
+                    [tip, left, right],
                 )
-
+            
+            # Ship count on fleet
             label = self.tiny_font.render(
                 str(int(fleet.ships)),
                 True,
                 config.TEXT,
             )
-
+            
             self.screen.blit(
                 label,
-                (
-                    position.x + 8,
-                    position.y - 8,
-                ),
+                (position.x + 10, position.y - 10),
             )
 
     def _draw_combat_shots(
@@ -333,80 +326,86 @@ class Renderer:
                 3,
             )
 
-    def _draw_systems(
-        self,
-        galaxy: Galaxy,
-        player: PlayerController,
-    ) -> None:
+    def _draw_systems(self, galaxy: Galaxy, player: PlayerController) -> None:
         valid_targets = player.valid_target_ids()
-
+        
+        # Pulsing effect timing
+        pulse_phase = pygame.time.get_ticks() / 500.0
+        
         for system in galaxy.systems:
             if system.owner_id is None:
                 color = config.NEUTRAL_COLOR
                 radius = config.STAR_RADIUS
             else:
-                color = galaxy.empires[
-                    system.owner_id
-                ].color
+                color = galaxy.empires[system.owner_id].color
                 radius = config.OWNED_STAR_RADIUS
-
+            
+            # Pulse effect for owned systems
+            if system.owner_id is not None:
+                pulse_offset = int(math.sin(pulse_phase + system.id) * 2)
+                display_radius = radius + pulse_offset
+            else:
+                display_radius = radius
+            
+            # Valid target indicator
             if system.id in valid_targets:
+                glow_radius = radius + 10 + int(math.sin(pulse_phase * 2) * 3)
                 pygame.draw.circle(
                     self.screen,
                     config.VALID_TARGET_COLOR,
                     system.pos,
-                    radius + 8,
-                    1,
+                    glow_radius,
+                    2,
                 )
-
-            if (
-                system.id
-                == player.hovered_system_id
-            ):
+            
+            # Hover highlight
+            if system.id == player.hovered_system_id:
                 pygame.draw.circle(
                     self.screen,
                     (190, 200, 220),
                     system.pos,
-                    radius + 5,
-                    1,
+                    radius + 6,
+                    2,
                 )
-
-            if (
-                system.id
-                == player.selected_system_id
-            ):
+            
+            # Selection ring with animation
+            if system.id == player.selected_system_id:
+                selection_size = radius + 12 + int(math.sin(pulse_phase * 1.5) * 2)
                 pygame.draw.circle(
                     self.screen,
                     config.SELECTION_COLOR,
                     system.pos,
-                    radius + 10,
+                    selection_size,
                     3,
                 )
-
+            
+            # Star core
             pygame.draw.circle(
                 self.screen,
                 config.STAR_CORE_COLOR,
                 system.pos,
-                radius + 2,
+                display_radius + 2,
             )
-
+            
+            # Main system body
             pygame.draw.circle(
                 self.screen,
                 color,
                 system.pos,
-                radius,
+                display_radius,
             )
-
+            
+            # Ship count label
             ship_text = self.small_font.render(
                 str(int(system.ships)),
                 True,
                 config.TEXT,
             )
-
+            
             self.screen.blit(
                 ship_text,
                 (
-                    system.pos.x + radius + 5,
+                    system.pos.x + display_radius + 5,
                     system.pos.y - 8,
                 ),
             )
@@ -436,7 +435,7 @@ class Renderer:
         )
 
         title = self.font.render(
-            "HYPERLANE WARS",
+            "DOMINUS STELLARUM",
             True,
             config.TEXT,
         )
