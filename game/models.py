@@ -31,15 +31,15 @@ class Fleet:
     target_id: int
     ships: float
     progress: float = 0.0
-    segment_progress: float = 0.0 
+    segment_progress: float = 0.0
     route: tuple[int, ...] = ()
     route_index: int = 1
-    position: pygame.Vector2 = None 
-    
+    position: pygame.Vector2 = None
+    siege_target_id: Optional[int] = None
+
     def __post_init__(self):
         if self.position is None:
             self.position = pygame.Vector2(0, 0)
-
 
 @dataclass
 class CombatShot:
