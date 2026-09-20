@@ -36,10 +36,16 @@ class PlayerController:
     def update(
         self,
         dt: float,
+        camera: dict,
     ) -> None:
-        hovered = self.galaxy.system_at(
-            pygame.mouse.get_pos()
+        # Convert screen mouse position to world position
+        mouse_screen_pos = pygame.mouse.get_pos()
+        world_pos = (
+            (mouse_screen_pos[0] - camera['offset_x']) / camera['zoom'],
+            (mouse_screen_pos[1] - camera['offset_y']) / camera['zoom'],
         )
+        
+        hovered = self.galaxy.system_at(world_pos)
 
         self.hovered_system_id = (
             None
@@ -58,13 +64,14 @@ class PlayerController:
     def handle_event(
         self,
         event: pygame.event.Event,
+        camera: dict,
     ) -> None:
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
-                self._left_click(event.pos)
+                self._left_click(event.pos, camera)
 
             elif event.button == 3:
-                self._right_click(event.pos)
+                self._right_click(event.pos, camera)
 
             elif event.button == 4:
                 self.increase_send_percent()
@@ -78,11 +85,25 @@ class PlayerController:
             elif event.y < 0:
                 self.decrease_send_percent()
 
+    def _convert_screen_to_world(
+        self,
+        screen_pos: tuple[int, int],
+        camera: dict,
+    ) -> tuple[int, int]:
+        """Convert screen coordinates to world coordinates."""
+        return (
+            int((screen_pos[0] - camera['offset_x']) / camera['zoom']),
+            int((screen_pos[1] - camera['offset_y']) / camera['zoom']),
+        )
+
     def _left_click(
         self,
         position: tuple[int, int],
+        camera: dict,
     ) -> None:
-        system = self.galaxy.system_at(position)
+        # Convert to world coordinates
+        world_pos = self._convert_screen_to_world(position, camera)
+        system = self.galaxy.system_at(world_pos)
 
         if system is None:
             self.selected_system_id = None
@@ -101,6 +122,7 @@ class PlayerController:
     def _right_click(
         self,
         position: tuple[int, int],
+        camera: dict,
     ) -> None:
         if self.selected_system_id is None:
             self._set_message(
@@ -108,7 +130,9 @@ class PlayerController:
             )
             return
 
-        target = self.galaxy.system_at(position)
+        # Convert to world coordinates
+        world_pos = self._convert_screen_to_world(position, camera)
+        target = self.galaxy.system_at(world_pos)
 
         if target is None:
             return
