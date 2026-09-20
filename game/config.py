@@ -2,8 +2,8 @@ WIDTH = 1280
 HEIGHT = 800
 FPS = 60
 
-CAMERA_ZOOM_MIN = 0.25
-CAMERA_ZOOM_MAX = 3.0
+CAMERA_ZOOM_MIN = 0.1
+CAMERA_ZOOM_MAX = 10.0
 CAMERA_ZOOM_SENSITIVITY = 0.15
 CAMERA_PAN_SENSITIVITY = 0.5
 
@@ -30,7 +30,7 @@ VALID_TARGET_COLOR = (120, 230, 160)
 
 PLAYER_ID = 0
 
-STAR_COUNT = 100
+STAR_COUNT = 250
 EMPIRE_COUNT = 6
 
 MIN_STAR_DISTANCE = 58
@@ -51,11 +51,9 @@ GALAXY_ARMS = 3
 GALAXY_ARM_TWIST = 1.8
 GALAXY_POSITION_JITTER = 42
 
-# Every system is intended to have between one and three links.
 MIN_CONNECTIONS = 1
 MAX_CONNECTIONS = 3
 
-# Prevent visually crossing hyperlanes.
 LANE_CROSSING_PADDING = 12.0
 
 STAR_RADIUS = 7
@@ -69,17 +67,13 @@ NEUTRAL_SHIPS_MAX = 14
 PRODUCTION_MIN = 0.45
 PRODUCTION_MAX = 1.25
 
-# Slower fleets give defensive systems time to fire.
-FLEET_SPEED = 38.0
+FLEET_SPEED = 20.0
 
-# Combat begins before a fleet reaches the destination system.
 COMBAT_RANGE = 125.0
 
-# Damage is applied per ship per second.
 ATTACKER_DAMAGE_PER_SHIP = 0.12
 DEFENDER_DAMAGE_PER_SHIP = 0.20
 
-# More bullets are emitted than strictly required for the damage model.
 ATTACKER_SHOTS_PER_SECOND = 8.0
 DEFENDER_SHOTS_PER_SECOND = 12.0
 
@@ -90,8 +84,6 @@ DEFENDER_ORBIT_RADIUS = 26.0
 DEFENDER_ORBIT_SPEED = 1.5
 DEFENDER_COUNT = 6
 
-# Production is divided among an empire's systems.
-# This keeps total production approximately stable as territory grows.
 PRODUCTION_CONCENTRATION = 1.0
 
 AI_THINK_INTERVAL = 0.7
