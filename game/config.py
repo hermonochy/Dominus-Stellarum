@@ -63,8 +63,9 @@ OWNED_STAR_RADIUS = 10
 
 STARTING_SHIPS = 35.0
 
-NEUTRAL_SHIPS_MIN = 3
-NEUTRAL_SHIPS_MAX = 14
+# TODO: at some point, some neutral systems may build their own fleet to defend themselves 
+NEUTRAL_SHIPS_MIN = 0
+NEUTRAL_SHIPS_MAX = 0
 
 PRODUCTION_MIN = 0.45
 PRODUCTION_MAX = 1.25

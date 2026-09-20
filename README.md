@@ -1,11 +1,13 @@
 # Dominus Stellarum
 
-A real-time 4X space strategy game built with Python and [`pygame-ce`](https://github.com/pygame-community/pygame-ce). Expand your empire across a procedurally generated galaxy, send fleets along hyperlanes, defeat rival empires, and become the last surviving power.
+A real-time 4X space strategy game built with Python and pygame. Expand your empire across a procedurally generated galaxy, send fleets along hyperlanes, defeat rival empires, and become the last surviving power.
+
+![](./screenshots/screenshot1.png)
 
 ## Requirements
 
 - Python 3.10 or newer recommended
-- `pygame-ce==2.5.8`
+- pygame
 
 ## Installation
 
@@ -101,5 +103,3 @@ Gameplay and display settings can be adjusted in [`game/config.py`](game/config.
 - AI decision intervals and attack thresholds
 - Simulation speed options
 - Empire names and colors
-
-The default window size is `1280 × 800` at 60 FPS. Simulation speeds are `0.5×`, `1×`, `2×`, and `4×`.

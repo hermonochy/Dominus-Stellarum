@@ -785,7 +785,6 @@ class Galaxy:
                             self.fleets.remove(fleet)
                     continue
 
-                # Siege won: capture the system and resume travel
                 if system.owner_id != fleet.owner_id:
                     system.owner_id = fleet.owner_id
                     system.ships = 0.0
@@ -817,12 +816,12 @@ class Galaxy:
                     fleet.route_index += 1
                     fleet.segment_progress = 0.0
 
-                    hostile = (
-                        next_system.owner_id != fleet.owner_id
-                        and next_system.ships > 0.01
-                    )
-                    if hostile:
-                        fleet.siege_target_id = next_id
+                    if next_system.owner_id != fleet.owner_id:
+                        if next_system.ships > 0.01:
+                            fleet.siege_target_id = next_id
+                        else:
+                            next_system.owner_id = fleet.owner_id
+                            next_system.ships = 0.0
 
             dest_system = self.systems[fleet.target_id]
             if dest_system.owner_id is not None and dest_system.owner_id != fleet.owner_id:
