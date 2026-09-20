@@ -1,3 +1,5 @@
+# Stores all pre defined constants
+
 WIDTH = 1280
 HEIGHT = 800
 FPS = 60

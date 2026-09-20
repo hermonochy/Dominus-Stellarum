@@ -1,4 +1,3 @@
-# app.py
 import pygame
 
 from . import config
