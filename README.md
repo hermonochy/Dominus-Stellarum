@@ -1,3 +1,6 @@
+![](./screenshots/icon1.png)
+
+
 # Dominus Stellarum
 
 A real-time 4X space strategy game built with Python and pygame. Expand your empire across a procedurally generated galaxy, send fleets along hyperlanes, defeat rival empires, and become the last surviving power.
@@ -61,15 +64,9 @@ You begin with one controlled star system. Owned systems continuously produce sh
 ### Fleet orders
 
 1. **Left-click** one of your systems to select it.
-2. **Right-click** a neighboring system to send a fleet.
+2. **Right-click** a different system to send a fleet.
 3. Fleets can only travel along displayed hyperlanes.
 4. Capturing all rival territory makes you the winner.
-
-When fleets arrive:
-
-- Fleets sent to a friendly system reinforce its defenses.
-- If an attacking fleet has more ships than the target, it captures the system.
-- Otherwise, the target's ship count is reduced by the attacking fleet's strength.
 
 ### Controls
 
@@ -88,13 +85,11 @@ When fleets arrive:
 | Start a new game | `R` |
 | Quit | `Esc` |
 
-Fleet send percentages can also be adjusted with the mouse wheel between 10% and 100%.
-
 ## Configuration
 
 Gameplay and display settings can be adjusted in [`game/config.py`](game/config.py), including:
 
-- Window size and frame rate
+- Frame rate
 - Number of star systems and empires
 - Star spacing and hyperlane generation
 - Starting ship counts
