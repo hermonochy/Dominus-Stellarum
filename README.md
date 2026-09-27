@@ -73,8 +73,7 @@ You begin with one controlled star system. Owned systems continuously produce sh
 | Action | Control |
 | --- | --- |
 | Select one of your systems | Left mouse button |
-| Send a fleet to a neighboring system | Right mouse button |
-| Increase/decrease fleet send percentage | Mouse wheel |
+| Send a fleet to a system | Right mouse button |
 | Set fleet size to 25% | `1` |
 | Set fleet size to 50% | `2` |
 | Set fleet size to 75% | `3` |
@@ -83,7 +82,6 @@ You begin with one controlled star system. Owned systems continuously produce sh
 | Increase simulation speed | `+` or `=` |
 | Decrease simulation speed | `-` |
 | Start a new game | `R` |
-| Quit | `Esc` |
 
 ## Configuration
 
@@ -98,3 +96,12 @@ Gameplay and display settings can be adjusted in [`game/config.py`](game/config.
 - AI decision intervals and attack thresholds
 - Simulation speed options
 - Empire names and colors
+
+## Future Work
+
+- Alliances
+- Storyline
+- Power boosts
+- Better balance
+- Different empire personalities
+- Cleaner galaxy generation

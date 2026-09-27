@@ -38,7 +38,6 @@ class PlayerController:
         dt: float,
         camera: dict,
     ) -> None:
-        # Convert screen mouse position to world position
         mouse_screen_pos = pygame.mouse.get_pos()
         world_pos = (
             (mouse_screen_pos[0] - camera['offset_x']) / camera['zoom'],
@@ -79,18 +78,11 @@ class PlayerController:
             elif event.button == 5:
                 self.decrease_send_percent()
 
-        elif event.type == pygame.MOUSEWHEEL:
-            if event.y > 0:
-                self.increase_send_percent()
-            elif event.y < 0:
-                self.decrease_send_percent()
-
     def _convert_screen_to_world(
         self,
         screen_pos: tuple[int, int],
         camera: dict,
     ) -> tuple[int, int]:
-        """Convert screen coordinates to world coordinates."""
         return (
             int((screen_pos[0] - camera['offset_x']) / camera['zoom']),
             int((screen_pos[1] - camera['offset_y']) / camera['zoom']),
@@ -101,7 +93,6 @@ class PlayerController:
         position: tuple[int, int],
         camera: dict,
     ) -> None:
-        # Convert to world coordinates
         world_pos = self._convert_screen_to_world(position, camera)
         system = self.galaxy.system_at(world_pos)
 
@@ -130,7 +121,6 @@ class PlayerController:
             )
             return
 
-        # Convert to world coordinates
         world_pos = self._convert_screen_to_world(position, camera)
         target = self.galaxy.system_at(world_pos)
 
