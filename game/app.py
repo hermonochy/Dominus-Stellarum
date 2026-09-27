@@ -193,18 +193,18 @@ class GameApp:
             return True
 
         if key == pygame.K_1:
-            self.player.send_percent = 25
+            self.player.send_percent = 20
             return True
-
         if key == pygame.K_2:
-            self.player.send_percent = 50
+            self.player.send_percent = 40
             return True
-
         if key == pygame.K_3:
-            self.player.send_percent = 75
+            self.player.send_percent = 60
             return True
-
         if key == pygame.K_4:
+            self.player.send_percent = 80
+            return True
+        if key == pygame.K_5:
             self.player.send_percent = 100
             return True
 

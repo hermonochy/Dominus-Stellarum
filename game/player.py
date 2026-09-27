@@ -72,12 +72,6 @@ class PlayerController:
             elif event.button == 3:
                 self._right_click(event.pos, camera)
 
-            elif event.button == 4:
-                self.increase_send_percent()
-
-            elif event.button == 5:
-                self.decrease_send_percent()
-
     def _convert_screen_to_world(
         self,
         screen_pos: tuple[int, int],
@@ -176,20 +170,6 @@ class PlayerController:
             f"{action} {target.name} "
             f"({hops} hyperlane"
             f"{'' if hops == 1 else 's'})"
-        )
-
-    def increase_send_percent(self) -> None:
-        self.send_percent = min(
-            config.MAX_SEND_PERCENT,
-            self.send_percent
-            + config.SEND_PERCENT_STEP,
-        )
-
-    def decrease_send_percent(self) -> None:
-        self.send_percent = max(
-            config.MIN_SEND_PERCENT,
-            self.send_percent
-            - config.SEND_PERCENT_STEP,
         )
 
     def _validate_selection(self) -> None:

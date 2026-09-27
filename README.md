@@ -74,10 +74,11 @@ You begin with one controlled star system. Owned systems continuously produce sh
 | --- | --- |
 | Select one of your systems | Left mouse button |
 | Send a fleet to a system | Right mouse button |
-| Set fleet size to 25% | `1` |
-| Set fleet size to 50% | `2` |
-| Set fleet size to 75% | `3` |
-| Set fleet size to 100% | `4` |
+| Set fleet size to 20% | `1` |
+| Set fleet size to 40% | `2` |
+| Set fleet size to 60% | `3` |
+| Set fleet size to 80% | `4` |
+| Set fleet size to 100% | `5` |
 | Pause or resume the simulation | `Space` |
 | Increase simulation speed | `+` or `=` |
 | Decrease simulation speed | `-` |
