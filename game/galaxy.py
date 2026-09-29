@@ -8,8 +8,8 @@ import pygame
 
 from . import config
 from .combat import (
+    resolve_engagement,
     resolve_fleet_arrival,
-    resolve_fleet_combat,
 )
 from .models import (
     CombatShot,
@@ -54,6 +54,7 @@ class Galaxy:
     def update(self, dt: float) -> None:
         self._produce_ships(dt)
         self._update_fleets(dt)
+        self._update_standoff_combat(dt)
         self._update_empire_status()
 
     def _create_systems(self) -> None:
@@ -318,7 +319,7 @@ class Galaxy:
                         if self.rng.random() < config.BRANCH_CHANCE:
                             branch_spin = arm["spin_dir"] * self.rng.choice([-1.0, 1.0])
                             branch_prev = placed_id
-                            
+
                             for bi in range(3):
                                 if len(positions) >= config.STAR_COUNT:
                                     break
@@ -688,18 +689,21 @@ class Galaxy:
 
                 if system.owner_id != fleet.owner_id and system.ships > 0.01:
                     fleet.position = system.pos
-                    new_shots = resolve_fleet_combat(
-                        fleet=fleet,
-                        fleet_position=fleet.position,
-                        target=system,
-                        dt=dt,
-                        attacker_color=self.empires[fleet.owner_id].color,
-                        defender_color=(
+                    new_shots = resolve_engagement(
+                        fleet,
+                        system,
+                        fleet.position,
+                        system.pos,
+                        dt,
+                        config.ATTACKER_DAMAGE_PER_SHIP,
+                        config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS,
+                        self.empires[fleet.owner_id].color,
+                        (
                             self.empires[system.owner_id].color
                             if system.owner_id is not None
                             else config.NEUTRAL_COLOR
                         ),
-                        rng=self.rng,
+                        self.rng,
                     )
                     self.combat_shots.extend(new_shots)
 
@@ -752,21 +756,6 @@ class Galaxy:
                             next_system.owner_id = fleet.owner_id
                             next_system.ships = 0.0
 
-            dest_system = self.systems[fleet.target_id]
-            if dest_system.owner_id is not None and dest_system.owner_id != fleet.owner_id:
-                distance_from_dest = fleet.position.distance_to(dest_system.pos)
-                if distance_from_dest <= config.COMBAT_RANGE:
-                    new_shots = resolve_fleet_combat(
-                        fleet=fleet,
-                        fleet_position=fleet.position,
-                        target=dest_system,
-                        dt=dt,
-                        attacker_color=self.empires[fleet.owner_id].color,
-                        defender_color=self.empires[dest_system.owner_id].color,
-                        rng=self.rng,
-                    )
-                    self.combat_shots.extend(new_shots)
-
             if fleet.ships <= 0.01:
                 if fleet in self.fleets:
                     self.fleets.remove(fleet)
@@ -780,6 +769,96 @@ class Galaxy:
             resolve_fleet_arrival(fleet, target)
             if fleet in self.fleets:
                 self.fleets.remove(fleet)
+
+    def _update_standoff_combat(self, dt: float) -> None:
+        systems = self.systems
+
+        for i in range(len(systems)):
+            first = systems[i]
+            if first.owner_id is None or first.ships <= 0.01:
+                continue
+
+            for j in range(i + 1, len(systems)):
+                second = systems[j]
+                if second.owner_id is None or second.owner_id == first.owner_id:
+                    continue
+
+                if first.pos.distance_to(second.pos) > config.SYSTEM_ENGAGEMENT_RANGE:
+                    continue
+
+                shots = resolve_engagement(
+                    first,
+                    second,
+                    first.pos,
+                    second.pos,
+                    dt,
+                    config.SYSTEM_VS_SYSTEM_PER_SHIP,
+                    config.SYSTEM_VS_SYSTEM_PER_SHIP,
+                    self.empires[first.owner_id].color,
+                    self.empires[second.owner_id].color,
+                    self.rng,
+                )
+                self.combat_shots.extend(shots)
+
+                if second.ships <= 0.01 or first.ships <= 0.01:
+                    pass
+
+        for fleet in list(self.fleets):
+            if fleet.ships <= 0.01:
+                continue
+
+            for system in systems:
+                if system.owner_id is None:
+                    continue
+                if system.owner_id == fleet.owner_id:
+                    continue
+                if fleet.siege_target_id == system.id:
+                    continue
+
+                if fleet.position.distance_to(system.pos) > config.COMBAT_RANGE:
+                    continue
+
+                shots = resolve_engagement(
+                    fleet,
+                    system,
+                    fleet.position,
+                    system.pos,
+                    dt,
+                    config.ATTACKER_DAMAGE_PER_SHIP,
+                    config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS,
+                    self.empires[fleet.owner_id].color,
+                    self.empires[system.owner_id].color,
+                    self.rng,
+                )
+                self.combat_shots.extend(shots)
+
+            for other in list(self.fleets):
+                if other.id <= fleet.id:
+                    continue
+                if other.owner_id == fleet.owner_id:
+                    continue
+
+                if fleet.position.distance_to(other.position) > config.COMBAT_RANGE:
+                    continue
+
+                shots = resolve_engagement(
+                    fleet,
+                    other,
+                    fleet.position,
+                    other.position,
+                    dt,
+                    config.FLEET_VS_FLEET_PER_SHIP,
+                    config.FLEET_VS_FLEET_PER_SHIP,
+                    self.empires[fleet.owner_id].color,
+                    self.empires[other.owner_id].color,
+                    self.rng,
+                )
+                self.combat_shots.extend(shots)
+
+        self.fleets = [f for f in self.fleets if f.ships > 0.01]
+
+        if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
+            self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
 
     def _update_empire_status(self) -> None:
         for empire in self.empires:
