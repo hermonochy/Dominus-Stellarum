@@ -7,6 +7,14 @@ import pygame
 from . import config
 from .models import CombatShot, Fleet, StarSystem
 
+def _hit_probability(ship_count: float) -> float:
+    if ship_count <= 0:
+        return 0.0
+    
+    hit_prob = ship_count / (ship_count + config.HIT_K)
+    
+    return min(1.0, hit_prob)
+
 def _spawn_shots(
     attacker_pos: pygame.Vector2,
     defender_pos: pygame.Vector2,
@@ -102,21 +110,27 @@ def resolve_engagement(
         config.COMBAT_JITTER_MAX,
     )
 
-    attacker_damage = (
+    attacker_hit_prob = _hit_probability(defender.ships)
+    defender_hit_prob = _hit_probability(attacker.ships)
+
+    raw_attacker_damage = (
         attacker.ships
         * attacker_dps_per_ship
         * dt
         * attacker_jitter
     )
-    defender_damage = (
+    raw_defender_damage = (
         defender.ships
         * defender_dps_per_ship
         * dt
         * defender_jitter
     )
 
-    attacker.ships = max(0.0, attacker.ships - defender_damage)
-    defender.ships = max(0.0, defender.ships - attacker_damage)
+    actual_attacker_damage = raw_attacker_damage * attacker_hit_prob
+    actual_defender_damage = raw_defender_damage * defender_hit_prob
+
+    attacker.ships = max(0.0, attacker.ships - actual_defender_damage)
+    defender.ships = max(0.0, defender.ships - actual_attacker_damage)
 
     return _spawn_shots(
         attacker_pos,
