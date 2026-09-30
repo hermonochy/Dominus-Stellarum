@@ -119,6 +119,14 @@ class GameApp:
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == pygame.BUTTON_MIDDLE:
+                    if self.panning:
+                        dx = event.pos[0] - self.pan_start_screen[0]
+                        dy = event.pos[1] - self.pan_start_screen[1]
+                        if dx * dx + dy * dy < 36:
+                            self.player.toggle_gathering_point(
+                                self.camera,
+                                event.pos,
+                            )
                     self.panning = False
 
             elif event.type == pygame.MOUSEMOTION:

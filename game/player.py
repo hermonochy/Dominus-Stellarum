@@ -197,3 +197,34 @@ class PlayerController:
         return self.galaxy.reachable_system_ids(
             self.selected_system_id
         )
+
+    def toggle_gathering_point(
+        self,
+        camera: dict,
+        screen_pos: tuple[int, int],
+    ) -> None:
+        world_pos = self._convert_screen_to_world(screen_pos, camera)
+        system = self.galaxy.system_at(world_pos)
+
+        if system is None:
+            return
+
+        if system.owner_id != config.PLAYER_ID:
+            self._set_message(
+                "Only your systems can be gathering points."
+            )
+            return
+
+        if self.galaxy.toggle_gathering_point(system.id):
+            if system.id in self.galaxy.gathering_points:
+                self._set_message(
+                    f"{system.name} is now a gathering point."
+                )
+            else:
+                self._set_message(
+                    f"{system.name} is no longer a gathering point."
+                )
+        else:
+            self._set_message(
+                "Unable to set gathering point."
+            )

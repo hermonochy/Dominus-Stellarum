@@ -35,6 +35,9 @@ class Galaxy:
 
         self.next_fleet_id = 0
 
+        self.gathering_points: set[int] = set()
+        self.new_ship_accum: dict[int, float] = {}
+
         self.generate()
 
     def generate(self) -> None:
@@ -46,6 +49,9 @@ class Galaxy:
         self.neighbors.clear()
 
         self.next_fleet_id = 0
+
+        self.gathering_points.clear()
+        self.new_ship_accum.clear()
 
         self._create_systems()
         self._create_empires()
@@ -566,7 +572,88 @@ class Galaxy:
                 continue
             owned_count = max(1, owned_counts.get(system.owner_id, 1))
             efficiency = owned_count ** config.PRODUCTION_CONCENTRATION
-            system.ships += system.production * dt / efficiency
+            gain = system.production * dt / efficiency
+            system.ships += gain
+
+            self.new_ship_accum[system.id] = (
+                self.new_ship_accum.get(system.id, 0.0) + gain
+            )
+
+            if system.id not in self.gathering_points:
+                if self.new_ship_accum[system.id] >= config.SHIP_DISPATCH_THRESHOLD:
+                    self._dispatch_accumulated(system)
+
+    def _dispatch_accumulated(self, system: StarSystem) -> None:
+        accumulated = self.new_ship_accum[system.id]
+        amount = int(accumulated)
+        if amount < 1:
+            return
+
+        candidates = [
+            sid
+            for sid in self.gathering_points
+            if sid != system.id
+            and self.systems[sid].owner_id == system.owner_id
+        ]
+        if not candidates:
+            return
+
+        candidates.sort(
+            key=lambda sid: system.pos.distance_to(self.systems[sid].pos)
+        )
+
+        for sid in candidates:
+            if self._launch_exact(system.id, sid, amount):
+                self.new_ship_accum[system.id] = accumulated - amount
+                return
+
+    def _launch_exact(
+        self,
+        source_id: int,
+        target_id: int,
+        amount: int,
+    ) -> bool:
+        source = self.systems[source_id]
+
+        if source.ships < amount:
+            return False
+
+        route = self.shortest_path(source_id, target_id)
+        if route is None or len(route) < 2:
+            return False
+
+        source.ships -= amount
+
+        self.fleets.append(
+            Fleet(
+                id=self.next_fleet_id,
+                owner_id=source.owner_id,
+                source_id=source_id,
+                target_id=target_id,
+                ships=float(amount),
+                route=route,
+                route_index=1,
+                segment_progress=0.0,
+            )
+        )
+
+        self.next_fleet_id += 1
+        return True
+
+    def toggle_gathering_point(self, system_id: int) -> bool:
+        if system_id not in self.neighbors:
+            return False
+
+        if system_id in self.gathering_points:
+            self.gathering_points.discard(system_id)
+            return True
+
+        system = self.systems[system_id]
+        if system.owner_id != config.PLAYER_ID:
+            return False
+
+        self.gathering_points.add(system_id)
+        return True
 
     def shortest_path(
         self,
@@ -800,9 +887,6 @@ class Galaxy:
                 )
                 self.combat_shots.extend(shots)
 
-                if second.ships <= 0.01 or first.ships <= 0.01:
-                    pass
-
         for fleet in list(self.fleets):
             if fleet.ships <= 0.01:
                 continue
@@ -861,6 +945,12 @@ class Galaxy:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
 
     def _update_empire_status(self) -> None:
+        self.gathering_points = {
+            sid
+            for sid in self.gathering_points
+            if self.systems[sid].owner_id == config.PLAYER_ID
+        }
+
         for empire in self.empires:
             owns_system = any(
                 system.owner_id == empire.id

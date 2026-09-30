@@ -156,3 +156,6 @@ EMPIRE_NAMES = [
     "Cyan League",
     "Ember Coalition",
 ]
+
+GATHERING_POINT_COLOR = (255, 160, 40)
+SHIP_DISPATCH_THRESHOLD = 5
