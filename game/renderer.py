@@ -89,7 +89,7 @@ class Renderer:
             target = galaxy.systems[fleet.target_id]
             color = galaxy.empires[fleet.owner_id].color
             position_screen = self.world_to_screen(position)
-            
+
             if len(fleet.route) > 1 and fleet.route_index < len(fleet.route):
                 current_node_id = fleet.route[fleet.route_index - 1]
                 next_node_id = fleet.route[fleet.route_index]
@@ -98,33 +98,33 @@ class Renderer:
                 direction = next_node.pos - current_node.pos
             else:
                 direction = target.pos - position
-            
+
             fleet_size = max(1, int(fleet.ships))
             base_size = 3 + fleet_size * 0.15
             shape_size = min(base_size * camera['zoom'], 18)
-            
+
             if direction.length_squared() > 0:
                 direction = direction.normalize()
                 perp = pygame.Vector2(-direction.y, direction.x)
-                
+
                 head_len = shape_size * 1.2
                 tail_len = shape_size * 0.6
                 half_width = shape_size * 0.4
-                
+
                 tip = position + direction * head_len
                 left_wing = position - direction * tail_len + perp * half_width
                 right_wing = position - direction * tail_len - perp * half_width
-                
+
                 points = [
                     (int(self.world_to_screen(tip).x), int(self.world_to_screen(tip).y)),
                     (int(self.world_to_screen(left_wing).x), int(self.world_to_screen(left_wing).y)),
                     (int(self.world_to_screen(right_wing).x), int(self.world_to_screen(right_wing).y))
                 ]
-                
+
                 pygame.draw.polygon(self.screen, color, points)
                 outline_color = tuple(min(255, c + 50) for c in color)
                 pygame.draw.polygon(self.screen, outline_color, points, 1)
-            
+
             label = self.small_font.render(str(int(fleet.ships)), True, config.TEXT)
             label_bg = pygame.Surface((label.get_width() + 4, label.get_height() + 2), pygame.SRCALPHA)
             label_bg.fill((0, 0, 0, 160))
@@ -167,6 +167,18 @@ class Renderer:
             if system.id == player.selected_system_id:
                 selection_size = radius + 12 * camera['zoom'] + int(math.sin(pulse_phase * 1.5) * 2 * camera['zoom'])
                 pygame.draw.circle(self.screen, config.SELECTION_COLOR, (int(system_screen.x), int(system_screen.y)), int(selection_size), 3)
+            if system.id in galaxy.gathering_points:
+                gr = radius + 16 * camera['zoom'] + int(math.sin(pulse_phase * 2.0 + system.id) * 3 * camera['zoom'])
+                gx, gy = int(system_screen.x), int(system_screen.y)
+                c = config.GATHERING_POINT_COLOR
+                pygame.draw.circle(self.screen, c, (gx, gy), int(gr), 2)
+                arm = int(6 * camera['zoom'])
+                corner = int(gr * 0.7)
+                for dx, dy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                    cx = gx + dx * corner
+                    cy = gy + dy * corner
+                    pygame.draw.line(self.screen, c, (cx - dx * arm, cy), (cx + dx * arm, cy), 2)
+                    pygame.draw.line(self.screen, c, (cx, cy - dy * arm), (cx, cy + dy * arm), 2)
             pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (int(system_screen.x), int(system_screen.y)), int(display_radius + 2 * camera['zoom']))
             pygame.draw.circle(self.screen, color, (int(system_screen.x), int(system_screen.y)), int(display_radius))
             font_scale = max(1, int(camera['zoom']))
@@ -186,7 +198,7 @@ class Renderer:
         player_ships = int(galaxy.empire_ship_count(config.PLAYER_ID))
         stats = self.small_font.render(f"Your systems: {player_systems}    Your ships: {player_ships}", True, galaxy.empires[config.PLAYER_ID].color)
         self.screen.blit(stats, stats.get_rect(midtop=(sw // 2, 14)))
-        controls_text = "Left click: select   Right click: send   Wheel: zoom   MMB drag / Arrows: pan   Space: pause   +/-: speed   F: fullscreen   R: new game"
+        controls_text = "LMB: select   RMB: send   MMB drag: pan   MMB click: gathering point   Wheel: zoom   Space: pause   +/-: speed   F: fullscreen   R: new game"
         controls = self.tiny_font.render(controls_text, True, config.MUTED_TEXT)
         self.screen.blit(controls, controls.get_rect(midtop=(sw // 2, 40)))
 
@@ -204,7 +216,7 @@ class Renderer:
     def _draw_selection_panel(self, galaxy, player, y):
         selected_id = player.selected_system_id
         if selected_id is None:
-            lines = ["No system selected", "Left-click one of your blue systems.", "Right-click a reachable system to send a fleet."]
+            lines = ["No system selected", "Left-click one of your blue systems.", "Right-click a reachable system to send a fleet.", "Middle-click any system to toggle a gathering point."]
         else:
             system = galaxy.systems[selected_id]
             reachable = len(galaxy.reachable_system_ids(selected_id))
@@ -235,17 +247,29 @@ class Renderer:
 
     def _draw_game_state(self, galaxy):
         if galaxy.player_won():
-            self._draw_end_screen("VICTORY", "You control the galaxy.", galaxy.empires[config.PLAYER_ID].color)
+            self._draw_end_screen("VICTORY", "You control the galaxy. Press R to start anew.")
         elif galaxy.player_defeated():
-            self._draw_end_screen("DEFEAT", "Your empire has fallen.", (230, 90, 90))
+            self._draw_end_screen("DEFEAT", "Your empire has fallen. Press R to try again.")
 
-    def _draw_end_screen(self, heading, subtitle, color):
-        overlay = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 175))
+    def _draw_end_screen(self, title, subtitle):
+        overlay = pygame.Surface(
+            (self.screen.get_width(), self.screen.get_height()),
+            pygame.SRCALPHA,
+        )
+        overlay.fill((0, 0, 0, 160))
         self.screen.blit(overlay, (0, 0))
-        title = self.huge_font.render(heading, True, color)
-        self.screen.blit(title, title.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 2 - 35)))
-        description = self.font.render(subtitle, True, config.TEXT)
-        self.screen.blit(description, description.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 2 + 20)))
-        restart = self.small_font.render("Press R to start a new galaxy.", True, config.MUTED_TEXT)
-        self.screen.blit(restart, restart.get_rect(center=(self.screen.get_width() // 2, self.screen.get_height() // 2 + 55)))
+
+        title_surface = self.huge_font.render(title, True, config.SELECTION_COLOR)
+        subtitle_surface = self.font.render(subtitle, True, config.TEXT)
+
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+
+        self.screen.blit(
+            title_surface,
+            title_surface.get_rect(center=(sw // 2, sh // 2 - 30)),
+        )
+        self.screen.blit(
+            subtitle_surface,
+            subtitle_surface.get_rect(center=(sw // 2, sh // 2 + 30)),
+        )

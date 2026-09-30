@@ -3,7 +3,6 @@ import pygame
 from . import config
 from .galaxy import Galaxy
 
-
 class PlayerController:
     def __init__(
         self,
@@ -207,12 +206,6 @@ class PlayerController:
         system = self.galaxy.system_at(world_pos)
 
         if system is None:
-            return
-
-        if system.owner_id != config.PLAYER_ID:
-            self._set_message(
-                "Only your systems can be gathering points."
-            )
             return
 
         if self.galaxy.toggle_gathering_point(system.id):

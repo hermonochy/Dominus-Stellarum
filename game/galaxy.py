@@ -589,38 +589,59 @@ class Galaxy:
         if amount < 1:
             return
 
-        candidates = [
-            sid
-            for sid in self.gathering_points
-            if sid != system.id
-            and self.systems[sid].owner_id == system.owner_id
-        ]
-        if not candidates:
+        empire_id = system.owner_id
+
+        best_score = None
+        best_sid = None
+        best_route = None
+
+        for sid in self.gathering_points:
+            if sid == system.id:
+                continue
+
+            target = self.systems[sid]
+
+            pool = 0.0
+            if target.owner_id == empire_id:
+                pool = target.ships
+
+            route = self._safe_route(system.id, sid, empire_id)
+            if route is None:
+                continue
+
+            hops = len(route) - 1
+            score = (
+                config.GATHER_HOP_WEIGHT * hops
+                + config.GATHER_SHIP_WEIGHT * pool
+            )
+
+            if best_score is None or score < best_score:
+                best_score = score
+                best_sid = sid
+                best_route = route
+
+        if best_sid is None:
             return
 
-        candidates.sort(
-            key=lambda sid: system.pos.distance_to(self.systems[sid].pos)
-        )
-
-        for sid in candidates:
-            if self._launch_exact(system.id, sid, amount):
-                self.new_ship_accum[system.id] = accumulated - amount
-                return
+        if self._launch_exact(system.id, best_sid, amount, best_route):
+            self.new_ship_accum[system.id] = accumulated - amount
 
     def _launch_exact(
         self,
         source_id: int,
         target_id: int,
         amount: int,
+        route: Optional[tuple[int, ...]] = None,
     ) -> bool:
         source = self.systems[source_id]
 
         if source.ships < amount:
             return False
 
-        route = self.shortest_path(source_id, target_id)
-        if route is None or len(route) < 2:
-            return False
+        if route is None:
+            route = self.shortest_path(source_id, target_id)
+            if route is None or len(route) < 2:
+                return False
 
         source.ships -= amount
 
@@ -648,10 +669,6 @@ class Galaxy:
             self.gathering_points.discard(system_id)
             return True
 
-        system = self.systems[system_id]
-        if system.owner_id != config.PLAYER_ID:
-            return False
-
         self.gathering_points.add(system_id)
         return True
 
@@ -675,6 +692,48 @@ class Galaxy:
             for neighbor in self.neighbors[current]:
                 if neighbor in previous:
                     continue
+
+                previous[neighbor] = current
+
+                if neighbor == target_id:
+                    path = [target_id]
+                    cursor = target_id
+                    while previous[cursor] is not None:
+                        cursor = previous[cursor]
+                        path.append(cursor)
+                    path.reverse()
+                    return tuple(path)
+
+                queue.append(neighbor)
+
+        return None
+
+    def _safe_route(
+        self,
+        source_id: int,
+        target_id: int,
+        empire_id: int,
+    ) -> Optional[tuple[int, ...]]:
+        if source_id == target_id:
+            return (source_id,)
+
+        if source_id not in self.neighbors or target_id not in self.neighbors:
+            return None
+
+        queue: list[int] = [source_id]
+        previous: dict[int, Optional[int]] = {source_id: None}
+
+        while queue:
+            current = queue.pop(0)
+
+            for neighbor in self.neighbors[current]:
+                if neighbor in previous:
+                    continue
+
+                if neighbor != target_id:
+                    node = self.systems[neighbor]
+                    if node.owner_id not in (None, empire_id):
+                        continue
 
                 previous[neighbor] = current
 
@@ -945,12 +1004,6 @@ class Galaxy:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
 
     def _update_empire_status(self) -> None:
-        self.gathering_points = {
-            sid
-            for sid in self.gathering_points
-            if self.systems[sid].owner_id == config.PLAYER_ID
-        }
-
         for empire in self.empires:
             owns_system = any(
                 system.owner_id == empire.id

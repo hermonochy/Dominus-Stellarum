@@ -68,12 +68,26 @@ You begin with one controlled star system. Owned systems continuously produce sh
 3. Fleets can only travel along displayed hyperlanes.
 4. Capturing all rival territory makes you the winner.
 
+### Gathering points
+
+**Middle-click** any system (yours, neutral, or enemy) to toggle it as a gathering point, marked with an orange reticle. Your systems automatically send newly produced ships to gathering points, choosing the best one based on:
+
+- **Distance** — closer gathering points are preferred.
+- **Vulnerability** — thinly defended gathering points receive priority over ones already well stocked.
+- **Safe passage** — routes that would cross enemy territory are avoided. If a gathering point cannot be reached without passing through hostile space, your ships stay home rather than fly to their deaths.
+
+Gathering points persist even if the system changes hands — place one deep in enemy space to stage an invasion, or hold a contested chokepoint.
+
 ### Controls
 
 | Action | Control |
 | --- | --- |
 | Select one of your systems | Left mouse button |
 | Send a fleet to a system | Right mouse button |
+| Pan the view | Drag with middle mouse button |
+| Toggle a gathering point | Click planet with middle mouse button |
+| Zoom in / out | Mouse wheel |
+| Pan the view | Arrow keys |
 | Set fleet size to 20% | `1` |
 | Set fleet size to 40% | `2` |
 | Set fleet size to 60% | `3` |
@@ -82,6 +96,8 @@ You begin with one controlled star system. Owned systems continuously produce sh
 | Pause or resume the simulation | `Space` |
 | Increase simulation speed | `+` or `=` |
 | Decrease simulation speed | `-` |
+| Toggle fullscreen | `F` |
+| Exit fullscreen (or quit the game) | `Esc` |
 | Start a new game | `R` |
 
 ## Configuration
