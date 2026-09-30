@@ -83,6 +83,16 @@ NEUTRAL_SHIPS_MAX = 0
 PRODUCTION_MIN = 0.45
 PRODUCTION_MAX = 1.25
 
+# Production efficiency curve: efficiency = PEAK_EFFICIENCY
+# - CURVE_STEEPNESS * abs(share_of_galaxy - PRODUCTION_PEAK_SHARE)
+# share_of_galaxy = owned_systems / STAR_COUNT (clamped 0..1)
+# Efficiency is divided into per-system production, so higher = faster output.
+PRODUCTION_PEAK_SHARE = 0.33   # galaxy share where production peaks
+PRODUCTION_PEAK_EFFICIENCY = 1.5  # efficiency at the peak
+PRODUCTION_CURVE_STEEPNESS = 2.25  # efficiency lost per unit share away from peak
+PRODUCTION_MIN_EFFICIENCY = 0.1   # floor; even doomed empires still trickle ships
+PRODUCTION_ZERO_CROSS_IN = 0.9  # share above which output is forced to ~zero
+
 FLEET_SPEED = 10.0
 
 GATHERING_POINT_COLOR = (255, 160, 40)
@@ -113,8 +123,6 @@ FLEET_VS_FLEET_PER_SHIP = 0.12
 
 COMBAT_JITTER_MIN = 0.55
 COMBAT_JITTER_MAX = 1.45
-
-PRODUCTION_CONCENTRATION = 1.0
 
 AI_THINK_INTERVAL = 1.0
 AI_ATTACK_THRESHOLD = 20.0
@@ -165,4 +173,3 @@ EMPIRE_NAMES = [
     "Cyan League",
     "Ember Coalition",
 ]
-

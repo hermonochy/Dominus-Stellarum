@@ -557,8 +557,49 @@ class Galaxy:
             system.owner_id = empire.id
             system.ships = config.STARTING_SHIPS
 
+    def _empire_production_efficiency(
+        self,
+        owned_count: int,
+        total_systems: int,
+    ) -> float:
+        """
+        Empire-size production efficiency modifier.
+
+        A tent-shaped curve over the empire's share of the galaxy:
+            efficiency = PEAK - STEEPNESS * |share - PEAK_SHARE|
+
+        - Tiny empires start around medium efficiency
+        - Production peaks when the empire holds PEAK_SHARE of the galaxy
+        - Beyond the peak it declines, hitting the MIN_EFFICIENCY floor
+        - Above ZERO_CROSS_IN the output is crushed toward zero
+        """
+        if total_systems <= 0:
+            return 1.0
+
+        share = owned_count / total_systems
+        share = max(0.001, min(1.0, share))
+
+        efficiency = (
+            config.PRODUCTION_PEAK_EFFICIENCY
+            - config.PRODUCTION_CURVE_STEEPNESS
+            * abs(share - config.PRODUCTION_PEAK_SHARE)
+        )
+
+        efficiency = max(config.PRODUCTION_MIN_EFFICIENCY, efficiency)
+
+        # Near-total control: production collapses toward zero
+        if share > config.PRODUCTION_ZERO_CROSS_IN:
+            overrun = (share - config.PRODUCTION_ZERO_CROSS_IN) / (
+                1.0 - config.PRODUCTION_ZERO_CROSS_IN
+            )
+            efficiency *= 1.0 - overrun
+
+        return efficiency
+
     def _produce_ships(self, dt: float) -> None:
         owned_counts: dict[int, int] = {}
+
+        total_systems = len(self.systems)
 
         for system in self.systems:
             if system.owner_id is None:
@@ -570,8 +611,14 @@ class Galaxy:
         for system in self.systems:
             if system.owner_id is None:
                 continue
-            owned_count = max(1, owned_counts.get(system.owner_id, 1))
-            efficiency = owned_count ** config.PRODUCTION_CONCENTRATION
+
+            owned_count = owned_counts.get(system.owner_id, 1)
+
+            efficiency = self._empire_production_efficiency(
+                owned_count,
+                total_systems,
+            )
+
             gain = system.production * dt / efficiency
             system.ships += gain
 
