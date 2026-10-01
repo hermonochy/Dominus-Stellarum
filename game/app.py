@@ -14,11 +14,11 @@ class GameApp:
         self.fullscreen = True
         self.default_width = config.WIDTH
         self.default_height = config.HEIGHT
-        
+
         display_info = pygame.display.Info()
         self.display_width = display_info.current_w
         self.display_height = display_info.current_h
-        
+
         self.flags = pygame.FULLSCREEN | pygame.DOUBLEBUF
         self.screen = pygame.display.set_mode(
             (self.display_width, self.display_height),
@@ -200,27 +200,21 @@ class GameApp:
             self.camera['offset_x'] -= 50
             return True
 
-        if key == pygame.K_1:
-            self.player.send_percent = 20
+        if pygame.K_F1 <= key <= pygame.K_F10:
+            self.player.use_percent = True
+            self.player.send_percent = (key - pygame.K_F1 + 1) * 10
             return True
-        if key == pygame.K_2:
-            self.player.send_percent = 40
-            return True
-        if key == pygame.K_3:
-            self.player.send_percent = 60
-            return True
-        if key == pygame.K_4:
-            self.player.send_percent = 80
-            return True
-        if key == pygame.K_5:
-            self.player.send_percent = 100
+
+        if pygame.K_1 <= key <= pygame.K_9:
+            self.player.use_percent = False
+            self.player.send_count = key - pygame.K_1 + 1
             return True
 
         return False
 
     def _toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
-        
+
         if self.fullscreen:
             display_info = pygame.display.Info()
             self.flags = pygame.FULLSCREEN | pygame.DOUBLEBUF

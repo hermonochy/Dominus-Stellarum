@@ -15,6 +15,8 @@ class PlayerController:
         self.send_percent = (
             config.DEFAULT_SEND_PERCENT
         )
+        self.send_count = 1
+        self.use_percent = True
 
         self.message = ""
         self.message_timer = 0.0
@@ -29,6 +31,8 @@ class PlayerController:
         self.send_percent = (
             config.DEFAULT_SEND_PERCENT
         )
+        self.send_count = 1
+        self.use_percent = True
         self.message = ""
         self.message_timer = 0.0
 
@@ -42,7 +46,7 @@ class PlayerController:
             (mouse_screen_pos[0] - camera['offset_x']) / camera['zoom'],
             (mouse_screen_pos[1] - camera['offset_y']) / camera['zoom'],
         )
-        
+
         hovered = self.galaxy.system_at(world_pos)
 
         self.hovered_system_id = (
@@ -145,11 +149,25 @@ class PlayerController:
             )
             return
 
-        launched = self.galaxy.launch_fleet(
-            source.id,
-            target.id,
-            self.send_percent,
-        )
+        if self.use_percent:
+            launched = self.galaxy.launch_fleet(
+                source.id,
+                target.id,
+                self.send_percent,
+            )
+            order_desc = f"{self.send_percent}%"
+        else:
+            launched = self.galaxy._launch_exact(
+                source.id,
+                target.id,
+                self.send_count,
+                route,
+            )
+            order_desc = (
+                f"{self.send_count} ship"
+                if self.send_count == 1
+                else f"{self.send_count} ships"
+            )
 
         if not launched:
             self._set_message(
@@ -167,7 +185,7 @@ class PlayerController:
 
         self._set_message(
             f"{action} {target.name} "
-            f"({hops} hyperlane"
+            f"({order_desc}, {hops} hyperlane"
             f"{'' if hops == 1 else 's'})"
         )
 

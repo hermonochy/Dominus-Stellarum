@@ -88,8 +88,8 @@ Gathering points persist even if the system changes hands — place one deep in 
 | Toggle a gathering point | Click planet with middle mouse button |
 | Zoom in / out | Mouse wheel |
 | Pan the view | Arrow keys |
-| Set fleet size to 20% | `1` |
-| Set fleet size to 40% | `2` |
+| Send X ships | 1–9 |
+| Send Y% of the fleet | F1–F10 |
 | Set fleet size to 60% | `3` |
 | Set fleet size to 80% | `4` |
 | Set fleet size to 100% | `5` |

@@ -186,19 +186,28 @@ class Renderer:
             ship_text = ship_font.render(str(int(system.ships)), True, config.TEXT)
             self.screen.blit(ship_text, (int(system_screen.x) + int(display_radius) + 5, int(system_screen.y) - 8))
 
+    def _fleet_order_label(self, player):
+        if player.use_percent:
+            return f"Fleet order: {player.send_percent}%"
+        return (
+            f"Fleet order: {player.send_count} ship"
+            if player.send_count == 1
+            else f"Fleet order: {player.send_count} ships"
+        )
+
     def _draw_top_bar(self, galaxy, player, paused, speed):
         sw = self.screen.get_width()
         pygame.draw.rect(self.screen, config.PANEL, (0, 0, sw, config.TOP_BAR_HEIGHT))
         state = "PAUSED" if paused else "RUNNING"
         title = self.font.render("DOMINUS STELLARUM", True, config.TEXT)
         self.screen.blit(title, (18, 12))
-        status = self.small_font.render(f"{state}   Speed {speed:g}x   Send {player.send_percent}%", True, config.MUTED_TEXT)
+        status = self.small_font.render(f"{state}   Speed {speed:g}x   {self._fleet_order_label(player)}", True, config.MUTED_TEXT)
         self.screen.blit(status, (18, 39))
         player_systems = galaxy.empire_system_count(config.PLAYER_ID)
         player_ships = int(galaxy.empire_ship_count(config.PLAYER_ID))
         stats = self.small_font.render(f"Your systems: {player_systems}    Your ships: {player_ships}", True, galaxy.empires[config.PLAYER_ID].color)
         self.screen.blit(stats, stats.get_rect(midtop=(sw // 2, 14)))
-        controls_text = "LMB: select   RMB: send   MMB drag: pan   MMB click: gathering point   Wheel: zoom   Space: pause   +/-: speed   F: fullscreen   R: new game"
+        controls_text = "LMB: select   RMB: send   MMB drag: pan   MMB click: gathering point   Wheel: zoom   1-9: send N ships   F1-F10: send %   Space: pause   +/-: speed   F: fullscreen   R: new game"
         controls = self.tiny_font.render(controls_text, True, config.MUTED_TEXT)
         self.screen.blit(controls, controls.get_rect(midtop=(sw // 2, 40)))
 
@@ -220,7 +229,7 @@ class Renderer:
         else:
             system = galaxy.systems[selected_id]
             reachable = len(galaxy.reachable_system_ids(selected_id))
-            lines = [system.name, f"Ships: {int(system.ships)}", f"Production: {system.production:.2f}/s", f"Hyperlanes: {len(galaxy.neighbors[system.id])}", f"Reachable systems: {reachable}", f"Fleet order: {player.send_percent}%"]
+            lines = [system.name, f"Ships: {int(system.ships)}", f"Production: {system.production:.2f}/s", f"Hyperlanes: {len(galaxy.neighbors[system.id])}", f"Reachable systems: {reachable}", self._fleet_order_label(player)]
         for index, line in enumerate(lines):
             color = config.TEXT if index == 0 else config.MUTED_TEXT
             font = self.font if index == 0 else self.small_font
