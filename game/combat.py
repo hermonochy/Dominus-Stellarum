@@ -10,9 +10,9 @@ from .models import CombatShot, Fleet, StarSystem
 def _hit_probability(ship_count: float) -> float:
     if ship_count <= 0:
         return 0.0
-    
+
     hit_prob = ship_count / (ship_count + config.HIT_K)
-    
+
     return min(1.0, hit_prob)
 
 def _spawn_shots(
@@ -89,13 +89,15 @@ def resolve_engagement(
     defender_color: tuple[int, int, int],
     rng: random.Random,
 ) -> list[CombatShot]:
+    # Bodies below the combat threshold cannot fight or be fought;
+    # garrisons that drop below it are snapped to exactly zero ships.
     if attacker.owner_id == defender.owner_id:
         return []
 
-    if attacker.ships <= 0.01:
+    if attacker.ships <= config.COMBAT_MIN_SHIPS:
         return []
 
-    if defender.ships <= 0.01:
+    if defender.ships <= config.COMBAT_MIN_SHIPS:
         return []
 
     if attacker_pos.distance_to(defender_pos) > config.COMBAT_RANGE:
@@ -132,6 +134,12 @@ def resolve_engagement(
     attacker.ships = max(0.0, attacker.ships - actual_defender_damage)
     defender.ships = max(0.0, defender.ships - actual_attacker_damage)
 
+    if attacker.ships < config.COMBAT_MIN_SHIPS:
+        attacker.ships = 0.0
+
+    if defender.ships < config.COMBAT_MIN_SHIPS:
+        defender.ships = 0.0
+
     return _spawn_shots(
         attacker_pos,
         defender_pos,
@@ -147,14 +155,14 @@ def resolve_fleet_arrival(
     fleet: Fleet,
     target: StarSystem,
 ) -> None:
-    if fleet.ships <= 0.01:
+    if fleet.ships <= config.COMBAT_MIN_SHIPS:
         return
 
     if target.owner_id == fleet.owner_id:
         target.ships += fleet.ships
         return
 
-    if target.ships <= 0.01:
+    if target.ships <= config.COMBAT_MIN_SHIPS:
         target.owner_id = fleet.owner_id
         target.ships = fleet.ships
         return
@@ -164,3 +172,5 @@ def resolve_fleet_arrival(
         target.ships = fleet.ships - target.ships
     else:
         target.ships -= fleet.ships
+        if target.ships < config.COMBAT_MIN_SHIPS:
+            target.ships = 0.0
