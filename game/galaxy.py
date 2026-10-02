@@ -52,6 +52,7 @@ class Galaxy:
         used_names: set[str] = set()
         positions: list[pygame.Vector2] = []
         system_data: list[tuple[str, float]] = []
+        arm_tags: list[Optional[int]] = []
 
         prefixes = ["Al", "Ar", "Bel", "Ca", "Cor", "Del", "Er", "Fal", "Gal", "Hel", "Io", "Jan", "Kel", "Lor", "Mor", "Nor", "Or", "Pra", "Qua", "Ren", "Sol", "Tal", "Ur", "Vel", "Wex", "Xan", "Yar", "Zen"]
         suffixes = ["a", "ar", "ea", "en", "eron", "ia", "ion", "is", "on", "or", "os", "um", "us"]
@@ -80,9 +81,10 @@ class Galaxy:
             if too_close(pos, config.MIN_STAR_DISTANCE * 0.6):
                 continue
             name = make_name()
-            production = self.rng.uniform(config.PRODUCTION_MIN * 1.1, config.PRODUCTION_MAX * 1.1) # core systems get a slight boost as they have the most fronts to defend
+            production = self.rng.uniform(config.PRODUCTION_MIN * 1.1, config.PRODUCTION_MAX * 1.1)
             positions.append(pos)
             system_data.append((name, production))
+            arm_tags.append(None)
             placed_core += 1
         core_count = placed_core
 
@@ -106,6 +108,7 @@ class Galaxy:
                 production = self.rng.uniform(config.PRODUCTION_MIN * production_multiplier, config.PRODUCTION_MAX * production_multiplier)
                 positions.append(pos)
                 system_data.append((name, production))
+                arm_tags.append(arm_idx)
 
         if len(positions) > core_count:
             branches_to_add = int(config.STAR_COUNT * config.GALAXY_BRANCH_RATIO)
@@ -125,7 +128,9 @@ class Galaxy:
                 production = self.rng.uniform(config.PRODUCTION_MIN, config.PRODUCTION_MAX)
                 positions.append(candidate)
                 system_data.append((name, production))
+                arm_tags.append(arm_tags[branch_parent])
 
+        self.system_arms = arm_tags
         for i, (pos, (name, prod)) in enumerate(zip(positions, system_data)):
             ships = float(self.rng.randint(config.NEUTRAL_SHIPS_MIN, config.NEUTRAL_SHIPS_MAX))
             self.systems.append(StarSystem(id=i, name=name, pos=pos, production=prod, ships=ships))
@@ -247,28 +252,19 @@ class Galaxy:
             self.empires.append(Empire(id=empire_id, name=config.EMPIRE_NAMES[empire_id % len(config.EMPIRE_NAMES)], color=config.EMPIRE_COLORS[empire_id % len(config.EMPIRE_COLORS)], is_player=(empire_id == config.PLAYER_ID)))
 
     def _place_empires(self) -> None:
-        """
-        place empires on arm tips first, one per arm
-        any empires left over once every arm is claimed are placed in the core
-        """
         center = pygame.Vector2(config.GALAXY_CENTER_X, config.GALAXY_CENTER_Y)
         num_arms = config.GALAXY_ARM_COUNT
         num_empires = min(len(self.empires), config.EMPIRE_COUNT)
 
-        arm_sectors = [[] for _ in range(num_arms)]
-        core_systems = []
-
-        for system in self.systems:
-            rel = system.pos - center
-            dist = rel.length()
-            if dist <= config.GALAXY_CORE_RADIUS:
+        arm_systems: list[list[StarSystem]] = [[] for _ in range(num_arms)]
+        core_systems: list[StarSystem] = []
+        for system, arm_idx in zip(self.systems, self.system_arms):
+            if arm_idx is None:
                 core_systems.append(system)
-                continue
-            angle = math.atan2(rel.y, rel.x) % math.tau
-            arm_idx = int(angle / (math.tau / num_arms)) % num_arms
-            arm_sectors[arm_idx].append(system)
+            else:
+                arm_systems[arm_idx].append(system)
 
-        for sector in arm_sectors:
+        for sector in arm_systems:
             sector.sort(key=lambda s: -s.pos.distance_to(center))
 
         chosen: list[int] = []
@@ -278,7 +274,7 @@ class Galaxy:
             system.ships = config.STARTING_SHIPS
             chosen.append(system.id)
 
-        def farthest_from_chosen(system: StarSystem) -> float:
+        def min_dist_to_placed(system: StarSystem) -> float:
             if not chosen:
                 return math.inf
             return min(
@@ -286,34 +282,27 @@ class Galaxy:
                 for cid in chosen
             )
 
-        arm_order = sorted(
-            range(num_arms),
-            key=lambda i: -len(arm_sectors[i]),
-        )
+        arm_order = sorted(range(num_arms), key=lambda i: -len(arm_systems[i]))
 
         empire_id = 0
-
         for arm_idx in arm_order:
-            if empire_id >= num_empires:
-                break
-            for system in arm_sectors[arm_idx]:
-                place(system, empire_id)
-                empire_id += 1
-                break
+            if empire_id >= num_empires or not arm_systems[arm_idx]:
+                continue
+            place(arm_systems[arm_idx][0], empire_id)
+            empire_id += 1
 
-        if empire_id < num_empires and core_systems:
-            pool = sorted(core_systems, key=farthest_from_chosen, reverse=True)
-            for system in pool:
-                if empire_id >= num_empires:
-                    break
-                place(system, empire_id)
-                empire_id += 1
+        pool = list(core_systems)
+        while empire_id < num_empires and pool:
+            best = max(pool, key=min_dist_to_placed)
+            pool.remove(best)
+            place(best, empire_id)
+            empire_id += 1
 
         while empire_id < num_empires:
             candidates = [s for s in self.systems if s.id not in chosen]
             if not candidates:
                 break
-            best = max(candidates, key=farthest_from_chosen)
+            best = max(candidates, key=min_dist_to_placed)
             place(best, empire_id)
             empire_id += 1
 
