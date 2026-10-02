@@ -23,6 +23,11 @@ class Galaxy:
         self.gathering_points: set[int] = set()
         self.new_ship_accum: dict[int, float] = {}
         self.active_combat: dict[int, float] = {}
+
+        self.grid_cell_size = config.COMBAT_RANGE * 2.0
+        self.spatial_grid: dict[tuple[int, int], list[int]] = {}
+        self.path_cache: dict[tuple[int, int], Optional[tuple[int, ...]]] = {}
+
         self.generate()
 
     def generate(self) -> None:
@@ -36,9 +41,12 @@ class Galaxy:
         self.gathering_points.clear()
         self.new_ship_accum.clear()
         self.active_combat.clear()
+        self.spatial_grid.clear()
+        self.path_cache.clear()
         self._create_systems()
         self._create_empires()
         self._place_empires()
+        self._build_spatial_grid()
 
     def update(self, dt: float) -> None:
         self._produce_ships(dt)
@@ -251,6 +259,17 @@ class Galaxy:
         for empire_id in range(config.EMPIRE_COUNT):
             self.empires.append(Empire(id=empire_id, name=config.EMPIRE_NAMES[empire_id % len(config.EMPIRE_NAMES)], color=config.EMPIRE_COLORS[empire_id % len(config.EMPIRE_COLORS)], is_player=(empire_id == config.PLAYER_ID)))
 
+    def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
+        rel = system.pos - center
+        radius = max(rel.length(), config.GALAXY_CORE_RADIUS + 21.0)
+        arm_start_radius = config.GALAXY_CORE_RADIUS + 20.0
+        log_span = math.log(config.ARM_MAX_RADIUS / arm_start_radius)
+        t = min(1.0, max(0.0, math.log(radius / arm_start_radius) / log_span))
+        ideal_angle = (math.tau / config.GALAXY_ARM_COUNT) * arm_idx + t * math.pi * config.GALAXY_ARM_PITCH
+        actual_angle = math.atan2(rel.y, rel.x)
+        delta = (actual_angle - ideal_angle + math.pi) % math.tau - math.pi
+        return abs(delta), radius
+
     def _place_empires(self) -> None:
         center = pygame.Vector2(config.GALAXY_CENTER_X, config.GALAXY_CENTER_Y)
         num_arms = config.GALAXY_ARM_COUNT
@@ -263,9 +282,6 @@ class Galaxy:
                 core_systems.append(system)
             else:
                 arm_systems[arm_idx].append(system)
-
-        for sector in arm_systems:
-            sector.sort(key=lambda s: -s.pos.distance_to(center))
 
         chosen: list[int] = []
 
@@ -282,14 +298,26 @@ class Galaxy:
                 for cid in chosen
             )
 
-        arm_order = sorted(range(num_arms), key=lambda i: -len(arm_systems[i]))
-
         empire_id = 0
-        for arm_idx in arm_order:
-            if empire_id >= num_empires or not arm_systems[arm_idx]:
+
+        for arm_idx in range(num_arms):
+            if empire_id >= num_empires:
+                break
+            candidates = [
+                s for s in arm_systems[arm_idx]
+                if s.pos.distance_to(center) > config.GALAXY_CORE_RADIUS
+            ]
+            if not candidates:
                 continue
-            place(arm_systems[arm_idx][0], empire_id)
-            empire_id += 1
+            best: tuple[tuple[int, float, float], StarSystem] | None = None
+            for system in candidates:
+                deviation, radius = self._spiral_deviation(system, arm_idx, center)
+                key = (1 if deviation > 0.5 else 0, -radius, deviation)
+                if best is None or key < best[0]:
+                    best = (key, system)
+            if best is not None:
+                place(best[1], empire_id)
+                empire_id += 1
 
         pool = list(core_systems)
         while empire_id < num_empires and pool:
@@ -408,6 +436,11 @@ class Galaxy:
             return (source_id,)
         if source_id not in self.neighbors or target_id not in self.neighbors:
             return None
+
+        cache_key = (source_id, target_id)
+        if cache_key in self.path_cache:
+            return self.path_cache[cache_key]
+
         queue: list[int] = [source_id]
         previous: dict[int, Optional[int]] = {source_id: None}
         while queue:
@@ -423,8 +456,12 @@ class Galaxy:
                         cursor = previous[cursor]
                         path.append(cursor)
                     path.reverse()
-                    return tuple(path)
+                    result = tuple(path)
+                    self.path_cache[cache_key] = result
+                    return result
                 queue.append(neighbor)
+
+        self.path_cache[cache_key] = None
         return None
 
     def _safe_route(self, source_id: int, target_id: int, empire_id: int) -> Optional[tuple[int, ...]]:
@@ -459,15 +496,16 @@ class Galaxy:
         if source_id not in self.neighbors:
             return set()
         reachable: set[int] = set()
+        visited: set[int] = {source_id}
         queue: list[int] = [source_id]
         while queue:
             current = queue.pop(0)
             for neighbor in self.neighbors[current]:
-                if neighbor in reachable:
+                if neighbor in visited:
                     continue
+                visited.add(neighbor)
                 reachable.add(neighbor)
                 queue.append(neighbor)
-        reachable.discard(source_id)
         return reachable
 
     def launch_fleet(self, source_id: int, target_id: int, send_percent: int) -> bool:
@@ -497,11 +535,13 @@ class Galaxy:
 
     def _update_fleets(self, dt: float) -> None:
         arrived: list[Fleet] = []
+        surviving_fleets: list[Fleet] = []
+
         for shot in self.combat_shots:
             shot.lifetime -= dt
         self.combat_shots = [shot for shot in self.combat_shots if shot.lifetime > 0.0]
 
-        for fleet in list(self.fleets):
+        for fleet in self.fleets:
             if fleet.siege_target_id is not None:
                 system = self.systems[fleet.siege_target_id]
                 if system.owner_id != fleet.owner_id and system.ships > config.COMBAT_MIN_SHIPS:
@@ -510,8 +550,7 @@ class Galaxy:
                     self.combat_shots.extend(new_shots)
                     self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS
                     if fleet.ships <= config.COMBAT_MIN_SHIPS:
-                        if fleet in self.fleets:
-                            self.fleets.remove(fleet)
+                        continue
                     continue
                 if system.owner_id != fleet.owner_id:
                     system.owner_id = fleet.owner_id
@@ -533,6 +572,7 @@ class Galaxy:
                 if fleet.route_index >= len(fleet.route) - 1:
                     fleet.progress = 1.0
                     arrived.append(fleet)
+                    continue
                 else:
                     fleet.route_index += 1
                     fleet.segment_progress = 0.0
@@ -543,51 +583,44 @@ class Galaxy:
                             next_system.owner_id = fleet.owner_id
                             next_system.ships = 0.0
 
-            if fleet.ships <= config.COMBAT_MIN_SHIPS:
-                if fleet in self.fleets:
-                    self.fleets.remove(fleet)
-                continue
+            if fleet.ships > config.COMBAT_MIN_SHIPS:
+                surviving_fleets.append(fleet)
 
-            if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
-                self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
+        self.fleets = surviving_fleets
 
         for fleet in arrived:
             target = self.systems[fleet.target_id]
             resolve_fleet_arrival(fleet, target)
-            if fleet in self.fleets:
-                self.fleets.remove(fleet)
+
+        if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
+            self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
 
     def _update_standoff_combat(self, dt: float) -> None:
-        systems = self.systems
-        for i in range(len(systems)):
-            first = systems[i]
-            if first.owner_id is None or first.ships <= config.COMBAT_MIN_SHIPS:
+        for system in self.systems:
+            if system.owner_id is None or system.ships <= config.COMBAT_MIN_SHIPS:
                 continue
-            for j in range(i + 1, len(systems)):
-                second = systems[j]
-                if second.owner_id is None or second.owner_id == first.owner_id or second.ships <= config.COMBAT_MIN_SHIPS:
+            for other in self._nearby_systems(system.pos, config.SYSTEM_ENGAGEMENT_RANGE):
+                if other.id <= system.id:
                     continue
-                if first.pos.distance_to(second.pos) > config.SYSTEM_ENGAGEMENT_RANGE:
+                if other.owner_id is None or other.owner_id == system.owner_id or other.ships <= config.COMBAT_MIN_SHIPS:
                     continue
-                shots = resolve_engagement(first, second, first.pos, second.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, config.SYSTEM_VS_SYSTEM_PER_SHIP, self.empires[first.owner_id].color, self.empires[second.owner_id].color, self.rng)
+                shots = resolve_engagement(system, other, system.pos, other.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, config.SYSTEM_VS_SYSTEM_PER_SHIP, self.empires[system.owner_id].color, self.empires[other.owner_id].color, self.rng)
                 self.combat_shots.extend(shots)
-                self.active_combat[first.id] = self.active_combat.get(first.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
-                self.active_combat[second.id] = self.active_combat.get(second.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
+                self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
+                self.active_combat[other.id] = self.active_combat.get(other.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
 
         for fleet in list(self.fleets):
             if fleet.ships <= config.COMBAT_MIN_SHIPS:
                 continue
-            for system in systems:
+            for system in self._nearby_systems(fleet.position, config.COMBAT_RANGE):
                 if system.owner_id is None or system.owner_id == fleet.owner_id or system.ships <= config.COMBAT_MIN_SHIPS:
                     continue
                 if fleet.siege_target_id == system.id:
                     continue
-                if fleet.position.distance_to(system.pos) > config.COMBAT_RANGE:
-                    continue
                 shots = resolve_engagement(fleet, system, fleet.position, system.pos, dt, config.ATTACKER_DAMAGE_PER_SHIP, config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS, self.empires[fleet.owner_id].color, self.empires[system.owner_id].color, self.rng)
                 self.combat_shots.extend(shots)
                 self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS
-            for other in list(self.fleets):
+            for other in self.fleets:
                 if other.id <= fleet.id or other.owner_id == fleet.owner_id or other.ships <= config.COMBAT_MIN_SHIPS:
                     continue
                 if fleet.position.distance_to(other.position) > config.COMBAT_RANGE:
@@ -650,3 +683,32 @@ class Galaxy:
     def player_won(self) -> bool:
         winner = self.winner()
         return winner is not None and winner.id == config.PLAYER_ID
+
+    def _build_spatial_grid(self) -> None:
+        cell_size = self.grid_cell_size
+        for system in self.systems:
+            key = (int(system.pos.x // cell_size), int(system.pos.y // cell_size))
+            if key not in self.spatial_grid:
+                self.spatial_grid[key] = []
+            self.spatial_grid[key].append(system.id)
+
+    def _nearby_systems(self, pos: pygame.Vector2, radius: float) -> list[StarSystem]:
+        cell_size = self.grid_cell_size
+        col_min = int((pos.x - radius) // cell_size)
+        col_max = int((pos.x + radius) // cell_size)
+        row_min = int((pos.y - radius) // cell_size)
+        row_max = int((pos.y + radius) // cell_size)
+
+        nearby_ids: set[int] = set()
+        for col in range(col_min, col_max + 1):
+            for row in range(row_min, row_max + 1):
+                bucket = self.spatial_grid.get((col, row))
+                if bucket:
+                    nearby_ids.update(bucket)
+
+        result: list[StarSystem] = []
+        for sid in nearby_ids:
+            system = self.systems[sid]
+            if system.pos.distance_to(pos) <= radius:
+                result.append(system)
+        return result
