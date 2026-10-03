@@ -2,6 +2,7 @@ import math
 import pygame
 
 from . import config
+from . import ui
 from .galaxy import Galaxy
 from .player import PlayerController
 
@@ -50,6 +51,14 @@ class Renderer:
         self._draw_bottom_bar(galaxy, player)
         self._draw_camera_info(camera)
         self._draw_game_state(galaxy)
+
+    def _fit_font(self, target_height: int, label: str) -> pygame.font.Font:
+        size = max(9, target_height)
+        font = pygame.font.Font(None, size)
+        while size > 9 and font.size(label)[1] > target_height:
+            size -= 1
+            font = pygame.font.Font(None, size)
+        return font
 
     def _gun_range(self, system) -> float:
         ships = min(system.ships, config.GUN_RANGE_MAX_SHIPS)
@@ -257,16 +266,43 @@ class Renderer:
 
     def _draw_bottom_bar(self, galaxy, player):
         sh = self.screen.get_height()
-        bottom_y = sh - config.BOTTOM_BAR_HEIGHT
-        pygame.draw.rect(self.screen, config.PANEL, (0, bottom_y, self.screen.get_width(), config.BOTTOM_BAR_HEIGHT))
-        pygame.draw.line(self.screen, config.LANE_COLOR, (0, bottom_y), (self.screen.get_width(), bottom_y), 2)
-        self._draw_selection_panel(galaxy, player, bottom_y)
-        self._draw_empire_panel(galaxy, bottom_y)
+        sw = self.screen.get_width()
+        bar_height = int(ui.bottom_bar_height)
+        bottom_y = sh - bar_height
+
+        pygame.draw.rect(self.screen, config.PANEL, (0, bottom_y, sw, bar_height))
+
+        highlight = config.LANE_HIGHLIGHT if ui.bar_dragging else config.LANE_COLOR
+        pygame.draw.line(self.screen, highlight, (0, bottom_y), (sw, bottom_y), 2)
+
+        grip_w = 160
+        grip_h = 12
+        grip_rect = pygame.Rect(sw // 2 - grip_w // 2, bottom_y + 4, grip_w, grip_h)
+        grip_color = config.LANE_HIGHLIGHT if ui.bar_dragging else (55, 68, 96)
+        pygame.draw.rect(self.screen, grip_color, grip_rect, border_radius=6)
+        ridge_color = config.PANEL_LIGHT if not ui.bar_dragging else config.BACKGROUND
+        for ry in (grip_rect.y + 4, grip_rect.y + 6, grip_rect.y + 8):
+            pygame.draw.line(self.screen, ridge_color, (grip_rect.x + 16, ry), (grip_rect.right - 16, ry), 1)
+
+        pad_top = 20
+        pad_bottom = 4
+        available = bar_height - pad_top - pad_bottom
+
+        empire_count = len(galaxy.empires)
+        empire_row_h = max(8, available // (empire_count + 1))
+
+        sample_row = "1. Terran Union [YOU]  123 sys  99999 ships"
+        empire_row_font = self._fit_font(empire_row_h, sample_row)
+        empire_title_font = self._fit_font(empire_row_h, "GALACTIC POWERS")
+
         if player.message:
             message = self.small_font.render(player.message, True, config.SELECTION_COLOR)
-            self.screen.blit(message, message.get_rect(midbottom=(self.screen.get_width() // 2, sh - 8)))
+            self.screen.blit(message, message.get_rect(midbottom=(sw // 2, bottom_y - 6)))
 
-    def _draw_selection_panel(self, galaxy, player, y):
+        self._draw_selection_panel(galaxy, player, bottom_y, pad_top, available)
+        self._draw_empire_panel(galaxy, bottom_y, pad_top, empire_row_h, empire_title_font, empire_row_font)
+
+    def _draw_selection_panel(self, galaxy, player, y, pad_top, available):
         selected_id = player.selected_system_id
         if selected_id is None:
             lines = ["No system selected", "Left-click one of your blue systems.", "Right-click a reachable system to send a fleet.", "Middle-click any system to toggle a gathering point."]
@@ -275,29 +311,49 @@ class Renderer:
             reachable = len(galaxy.reachable_system_ids(selected_id))
             gun_range = self._gun_range(system)
             lines = [system.name, f"Ships: {int(system.ships)}", f"Production: {system.production:.2f}/s", f"Gun range: {gun_range:.0f}", f"Hyperlanes: {len(galaxy.neighbors[system.id])}", f"Reachable systems: {reachable}", self._fleet_order_label(player)]
+
+        row_height = max(10, available // len(lines))
+        longest_line = max(lines, key=len)
+        body_font = self._fit_font(row_height, longest_line)
+
+        cursor_y = y + pad_top
         for index, line in enumerate(lines):
             color = config.TEXT if index == 0 else config.MUTED_TEXT
-            font = self.font if index == 0 else self.small_font
-            surface = font.render(line, True, color)
-            self.screen.blit(surface, (18, y + 10 + index * 19))
+            surface = body_font.render(line, True, color)
+            self.screen.blit(surface, (18, cursor_y))
+            cursor_y += row_height
 
-    def _draw_empire_panel(self, galaxy, y):
+    def _draw_empire_panel(self, galaxy, y, pad_top, row_height, title_font, row_font):
         sw = self.screen.get_width()
-        x = sw - 320
-        heading = self.font.render("GALACTIC POWERS", True, config.TEXT)
-        self.screen.blit(heading, (x, y + 12))
-        for index, empire in enumerate(galaxy.empires):
+        right_margin = 18
+        right_edge = sw - right_margin
+        cursor_y = y + pad_top
+
+        ranked = sorted(
+            galaxy.empires,
+            key=lambda empire: galaxy.empire_strength(empire.id),
+            reverse=True,
+        )
+
+        heading = title_font.render("GALACTIC POWERS", True, config.TEXT)
+        self.screen.blit(heading, heading.get_rect(right=right_edge, top=cursor_y))
+        cursor_y += row_height
+
+        for rank, empire in enumerate(ranked, start=1):
             systems = galaxy.empire_system_count(empire.id)
             ships = int(galaxy.empire_ship_count(empire.id))
             color = empire.color if empire.alive else config.MUTED_TEXT
             marker = "YOU" if empire.is_player else "AI"
-            text = f"{empire.name} [{marker}]  {systems} systems  {ships} ships"
-            surface = self.tiny_font.render(text, True, color)
-            self.screen.blit(surface, (x, y + 38 + index * 14))
+            dead = "" if empire.alive else " (dead)"
+            text = f"{rank}. {empire.name} [{marker}]  {systems} sys  {ships} ships{dead}"
+            surface = row_font.render(text, True, color)
+            self.screen.blit(surface, surface.get_rect(right=right_edge, top=cursor_y))
+            cursor_y += row_height
 
     def _draw_camera_info(self, camera):
+        bar_top = self.screen.get_height() - int(ui.bottom_bar_height)
         info_text = self.tiny_font.render(f"Zoom: {camera['zoom']:.2f}x", True, config.MUTED_TEXT)
-        self.screen.blit(info_text, (self.screen.get_width() - info_text.get_width() - 18, config.HEIGHT - config.BOTTOM_BAR_HEIGHT - 24))
+        self.screen.blit(info_text, (self.screen.get_width() - info_text.get_width() - 18, bar_top - 24))
 
     def _draw_game_state(self, galaxy):
         if galaxy.player_won():

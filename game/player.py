@@ -1,6 +1,7 @@
 import pygame
 
 from . import config
+from . import ui
 from .galaxy import Galaxy
 
 class PlayerController:
@@ -36,6 +37,19 @@ class PlayerController:
         self.message = ""
         self.message_timer = 0.0
 
+    def _screen_height(self) -> int:
+        surface = pygame.display.get_surface()
+        if surface is not None:
+            return surface.get_height()
+        return config.HEIGHT
+
+    def _over_bottom_bar(self, pos: tuple[int, int]) -> bool:
+        return pos[1] >= self._screen_height() - ui.bottom_bar_height
+
+    def _in_drag_zone(self, pos: tuple[int, int]) -> bool:
+        bar_top = self._screen_height() - ui.bottom_bar_height
+        return abs(pos[1] - bar_top) <= config.BAR_DRAG_TOLERANCE
+
     def update(
         self,
         dt: float,
@@ -48,6 +62,9 @@ class PlayerController:
         )
 
         hovered = self.galaxy.system_at(world_pos)
+
+        if mouse_screen_pos[1] >= self._screen_height() - ui.bottom_bar_height:
+            hovered = None
 
         self.hovered_system_id = (
             None
@@ -70,10 +87,29 @@ class PlayerController:
     ) -> None:
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
+                if self._in_drag_zone(event.pos):
+                    ui.bar_dragging = True
+                    return
+                if self._over_bottom_bar(event.pos):
+                    return
                 self._left_click(event.pos, camera)
 
             elif event.button == 3:
+                if self._over_bottom_bar(event.pos):
+                    return
                 self._right_click(event.pos, camera)
+
+        elif event.type == pygame.MOUSEMOTION:
+            if ui.bar_dragging:
+                screen_h = self._screen_height()
+                ui.bottom_bar_height = ui.clamp_bar_height(
+                    screen_h - event.pos[1],
+                    screen_h,
+                )
+
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:
+                ui.bar_dragging = False
 
     def _convert_screen_to_world(
         self,
@@ -220,6 +256,9 @@ class PlayerController:
         camera: dict,
         screen_pos: tuple[int, int],
     ) -> None:
+        if self._over_bottom_bar(screen_pos):
+            return
+
         world_pos = self._convert_screen_to_world(screen_pos, camera)
         system = self.galaxy.system_at(world_pos)
 
