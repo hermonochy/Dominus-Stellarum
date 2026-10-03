@@ -68,9 +68,9 @@ You begin with one controlled star system. Owned systems continuously produce sh
 3. Fleets can only travel along displayed hyperlanes.
 4. Capturing all rival territory makes you the winner.
 
-### Gathering points
+#### Gathering points
 
-**Middle-click** any system (yours, neutral, or enemy) to toggle it as a gathering point, marked with an orange reticle. Your systems automatically send newly produced ships to gathering points, choosing the best one based on:
+To avoid manually sending newly generated ships to frontier planets, **Middle-click** any system (yours, neutral, or enemy) to toggle it as a gathering point, marked with an orange reticle. Your systems automatically send newly produced ships to gathering points, choosing the best one based on:
 
 - **Distance** — closer gathering points are preferred.
 - **Vulnerability** — thinly defended gathering points receive priority over ones already well stocked.
@@ -88,7 +88,7 @@ Gathering points persist even if the system changes hands — place one deep in 
 | Toggle a gathering point | Click planet with middle mouse button |
 | Zoom in / out | Mouse wheel |
 | Pan the view | Arrow keys |
-| Send X ships | 1–9 |
+| Send X ships from the selected planet | 1–9 |
 | Send Y% of the fleet | F1–F10 |
 | Pause or resume the simulation | `Space` |
 | Increase simulation speed | `+` or `=` |
@@ -99,7 +99,7 @@ Gathering points persist even if the system changes hands — place one deep in 
 
 ## Configuration
 
-Gameplay and display settings can be adjusted in [`game/config.py`](game/config.py), including:
+Gameplay and display settings can be adjusted in [`game/config.py`](game/config.py), including but not limited to:
 
 - Frame rate
 - Number of star systems and empires
