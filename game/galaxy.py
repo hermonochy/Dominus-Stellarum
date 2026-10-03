@@ -345,14 +345,6 @@ class Galaxy:
             efficiency *= 1.0 - overrun
         return efficiency
 
-    def _apply_combat_drain(self, system: StarSystem, dt: float) -> None:
-        if system.id in self.active_combat and self.active_combat[system.id] > 0:
-            damage_taken = self.active_combat[system.id] * dt * config.COMBAT_DRAIN_RATE
-            if damage_taken > system.ships:
-                system.ships = 0.0
-            else:
-                system.ships -= damage_taken
-
     def _produce_ships(self, dt: float) -> None:
         owned_counts: dict[int, int] = {}
         total_systems = len(self.systems)
@@ -471,15 +463,17 @@ class Galaxy:
             return None
         queue: list[int] = [source_id]
         previous: dict[int, Optional[int]] = {source_id: None}
+        visited: set[int] = {source_id}
         while queue:
             current = queue.pop(0)
             for neighbor in self.neighbors[current]:
-                if neighbor in previous:
+                if neighbor in visited:
                     continue
                 if neighbor != target_id:
                     node = self.systems[neighbor]
                     if node.owner_id not in (None, empire_id):
                         continue
+                visited.add(neighbor)
                 previous[neighbor] = current
                 if neighbor == target_id:
                     path = [target_id]
@@ -546,7 +540,7 @@ class Galaxy:
                 system = self.systems[fleet.siege_target_id]
                 if system.owner_id != fleet.owner_id and system.ships > config.COMBAT_MIN_SHIPS:
                     fleet.position = system.pos
-                    new_shots = resolve_engagement(fleet, system, fleet.position, system.pos, dt, config.ATTACKER_DAMAGE_PER_SHIP, config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS, self.empires[fleet.owner_id].color, self.empires[system.owner_id].color if system.owner_id is not None else config.NEUTRAL_COLOR, self.rng)
+                    new_shots = resolve_engagement(fleet, system, fleet.position, system.pos, dt, config.ATTACKER_DAMAGE_PER_SHIP, config.DEFENDER_DAMAGE_PER_SHIP, self.empires[fleet.owner_id].color, self.empires[system.owner_id].color if system.owner_id is not None else config.NEUTRAL_COLOR, self.rng, False, True)
                     self.combat_shots.extend(new_shots)
                     self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS
                     if fleet.ships <= config.COMBAT_MIN_SHIPS:
@@ -599,12 +593,12 @@ class Galaxy:
         for system in self.systems:
             if system.owner_id is None or system.ships <= config.COMBAT_MIN_SHIPS:
                 continue
-            for other in self._nearby_systems(system.pos, config.SYSTEM_ENGAGEMENT_RANGE):
+            for other in self._nearby_systems(system.pos, config.COMBAT_RANGE):
                 if other.id <= system.id:
                     continue
                 if other.owner_id is None or other.owner_id == system.owner_id or other.ships <= config.COMBAT_MIN_SHIPS:
                     continue
-                shots = resolve_engagement(system, other, system.pos, other.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, config.SYSTEM_VS_SYSTEM_PER_SHIP, self.empires[system.owner_id].color, self.empires[other.owner_id].color, self.rng)
+                shots = resolve_engagement(system, other, system.pos, other.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, config.SYSTEM_VS_SYSTEM_PER_SHIP, self.empires[system.owner_id].color, self.empires[other.owner_id].color, self.rng, True, True)
                 self.combat_shots.extend(shots)
                 self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
                 self.active_combat[other.id] = self.active_combat.get(other.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
@@ -617,15 +611,15 @@ class Galaxy:
                     continue
                 if fleet.siege_target_id == system.id:
                     continue
-                shots = resolve_engagement(fleet, system, fleet.position, system.pos, dt, config.ATTACKER_DAMAGE_PER_SHIP, config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS, self.empires[fleet.owner_id].color, self.empires[system.owner_id].color, self.rng)
+                shots = resolve_engagement(fleet, system, fleet.position, system.pos, dt, config.FLEET_VS_FLEET_PER_SHIP, config.FLEET_VS_FLEET_PER_SHIP, self.empires[fleet.owner_id].color, self.empires[system.owner_id].color, self.rng, False, True)
                 self.combat_shots.extend(shots)
-                self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.DEFENDER_DAMAGE_PER_SHIP * config.DEFENDER_BONUS
+                self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.FLEET_VS_FLEET_PER_SHIP * config.DEFENDER_BONUS
             for other in self.fleets:
                 if other.id <= fleet.id or other.owner_id == fleet.owner_id or other.ships <= config.COMBAT_MIN_SHIPS:
                     continue
                 if fleet.position.distance_to(other.position) > config.COMBAT_RANGE:
                     continue
-                shots = resolve_engagement(fleet, other, fleet.position, other.position, dt, config.FLEET_VS_FLEET_PER_SHIP, config.FLEET_VS_FLEET_PER_SHIP, self.empires[fleet.owner_id].color, self.empires[other.owner_id].color, self.rng)
+                shots = resolve_engagement(fleet, other, fleet.position, other.position, dt, config.FLEET_VS_FLEET_PER_SHIP, config.FLEET_VS_FLEET_PER_SHIP, self.empires[fleet.owner_id].color, self.empires[other.owner_id].color, self.rng, False, False)
                 self.combat_shots.extend(shots)
 
         self.fleets = [f for f in self.fleets if f.ships > config.COMBAT_MIN_SHIPS]

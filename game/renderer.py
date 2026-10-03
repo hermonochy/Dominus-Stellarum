@@ -11,6 +11,8 @@ class Renderer:
         self.camera = camera
         self.base_width = 1280
         self.base_height = 800
+        self._range_cache: dict[tuple[int, tuple[int, int, int]], pygame.Surface] = {}
+        self._range_cache_zoom = camera['zoom']
         self._recache_fonts()
 
     def _recache_fonts(self):
@@ -40,7 +42,7 @@ class Renderer:
         self._recache_fonts()
         self.screen.fill(config.BACKGROUND)
         self._draw_hyperlanes(galaxy, player, camera)
-        self._draw_defender_orbits(galaxy, camera)
+        self._draw_gun_ranges(galaxy, camera)
         self._draw_fleets(galaxy, camera)
         self._draw_combat_shots(galaxy, camera)
         self._draw_systems(galaxy, player, camera)
@@ -48,6 +50,66 @@ class Renderer:
         self._draw_bottom_bar(galaxy, player)
         self._draw_camera_info(camera)
         self._draw_game_state(galaxy)
+
+    def _gun_range(self, system) -> float:
+        ships = min(system.ships, config.GUN_RANGE_MAX_SHIPS)
+        factor = math.log(1.0 + ships) / math.log(1.0 + config.GUN_RANGE_MAX_SHIPS)
+        return config.GUN_RANGE_MIN + (config.GUN_RANGE_MAX - config.GUN_RANGE_MIN) * factor
+
+    def _fleet_range(self, fleet) -> float:
+        ships = min(fleet.ships, config.GUN_RANGE_MAX_SHIPS)
+        factor = math.log(1.0 + ships) / math.log(1.0 + config.GUN_RANGE_MAX_SHIPS)
+        return config.GUN_RANGE_MIN + (config.GUN_RANGE_MAX - config.GUN_RANGE_MIN) * factor
+
+    def _get_range_surface(self, radius_i: int, color: tuple[int, int, int]) -> pygame.Surface:
+        key = (radius_i, color)
+        cached = self._range_cache.get(key)
+        if cached is not None:
+            return cached
+
+        if len(self._range_cache) > 600:
+            self._range_cache.clear()
+
+        diameter = radius_i * 2 + 4
+        surface = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
+        center = (radius_i + 2, radius_i + 2)
+
+        fill_color = (*color, config.GUN_RANGE_FILL_ALPHA)
+        pygame.draw.circle(surface, fill_color, center, radius_i)
+
+        ring_color = (*color, config.GUN_RANGE_RING_ALPHA)
+        ring_width = max(1, min(3, radius_i // 30 + 1))
+        pygame.draw.circle(surface, ring_color, center, radius_i, ring_width)
+
+        self._range_cache[key] = surface
+        return surface
+
+    def _draw_gun_ranges(self, galaxy, camera):
+        if self._range_cache_zoom != camera['zoom']:
+            self._range_cache.clear()
+            self._range_cache_zoom = camera['zoom']
+
+        entities = [
+            (self.world_to_screen(system.pos), self._gun_range(system), system.owner_id)
+            for system in galaxy.systems
+            if system.owner_id is not None
+        ]
+        entities.extend(
+            (self.world_to_screen(fleet.position), self._fleet_range(fleet), fleet.owner_id)
+            for fleet in galaxy.fleets
+        )
+
+        for center, world_radius, owner_id in entities:
+            radius = world_radius * camera['zoom']
+            radius_i = int(radius)
+            if radius_i < 3:
+                continue
+
+            color = galaxy.empires[owner_id].color
+            surface = self._get_range_surface(radius_i, color)
+
+            topleft = (int(center.x) - radius_i - 2, int(center.y) - radius_i - 2)
+            self.screen.blit(surface, topleft)
 
     def _draw_hyperlanes(self, galaxy, player, camera):
         selected = player.selected_system_id
@@ -64,24 +126,6 @@ class Renderer:
             width = int(max(2, 3 if highlighted else 2) * camera['zoom'])
             color = config.LANE_HIGHLIGHT if highlighted else config.LANE_COLOR
             pygame.draw.line(self.screen, color, (first_screen.x, first_screen.y), (second_screen.x, second_screen.y), width)
-
-    def _draw_defender_orbits(self, galaxy, camera):
-        current_time = pygame.time.get_ticks() / 1000.0
-        scaled_radius = config.DEFENDER_ORBIT_RADIUS * camera['zoom']
-        for system in galaxy.systems:
-            if system.owner_id is None:
-                continue
-            empire = galaxy.empires[system.owner_id]
-            system_screen = self.world_to_screen(system.pos)
-            orbit_color = tuple(c // 3 for c in empire.color)
-            pygame.draw.circle(self.screen, orbit_color, (int(system_screen.x), int(system_screen.y)), int(scaled_radius), 1)
-            for index in range(config.DEFENDER_COUNT):
-                angle = current_time * config.DEFENDER_ORBIT_SPEED + index * math.tau / config.DEFENDER_COUNT
-                position = system.pos + pygame.Vector2(math.cos(angle), math.sin(angle)) * config.DEFENDER_ORBIT_RADIUS
-                pos_screen = self.world_to_screen(position)
-                dot_size = max(2, int(3 * camera['zoom']))
-                pygame.draw.circle(self.screen, empire.color, (int(pos_screen.x), int(pos_screen.y)), dot_size)
-                pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (int(pos_screen.x), int(pos_screen.y)), dot_size + 1, 1)
 
     def _draw_fleets(self, galaxy, camera):
         for fleet in galaxy.fleets:
@@ -229,7 +273,8 @@ class Renderer:
         else:
             system = galaxy.systems[selected_id]
             reachable = len(galaxy.reachable_system_ids(selected_id))
-            lines = [system.name, f"Ships: {int(system.ships)}", f"Production: {system.production:.2f}/s", f"Hyperlanes: {len(galaxy.neighbors[system.id])}", f"Reachable systems: {reachable}", self._fleet_order_label(player)]
+            gun_range = self._gun_range(system)
+            lines = [system.name, f"Ships: {int(system.ships)}", f"Production: {system.production:.2f}/s", f"Gun range: {gun_range:.0f}", f"Hyperlanes: {len(galaxy.neighbors[system.id])}", f"Reachable systems: {reachable}", self._fleet_order_label(player)]
         for index, line in enumerate(lines):
             color = config.TEXT if index == 0 else config.MUTED_TEXT
             font = self.font if index == 0 else self.small_font

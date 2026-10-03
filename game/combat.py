@@ -88,9 +88,10 @@ def resolve_engagement(
     attacker_color: tuple[int, int, int],
     defender_color: tuple[int, int, int],
     rng: random.Random,
+    attacker_is_system: bool = False,
+    defender_is_system: bool = False,
 ) -> list[CombatShot]:
-    # Bodies below the combat threshold cannot fight or be fought;
-    # garrisons that drop below it are snapped to exactly zero ships.
+    # Bodies below the combat threshold cannot fight or be fought
     if attacker.owner_id == defender.owner_id:
         return []
 
@@ -100,7 +101,9 @@ def resolve_engagement(
     if defender.ships <= config.COMBAT_MIN_SHIPS:
         return []
 
-    if attacker_pos.distance_to(defender_pos) > config.COMBAT_RANGE:
+    distance = attacker_pos.distance_to(defender_pos)
+    
+    if distance > config.COMBAT_RANGE:
         return []
 
     attacker_jitter = rng.uniform(
@@ -112,18 +115,28 @@ def resolve_engagement(
         config.COMBAT_JITTER_MAX,
     )
 
+    if attacker_is_system:
+        actual_attacker_dps = attacker_dps_per_ship * config.DEFENDER_BONUS
+    else:
+        actual_attacker_dps = attacker_dps_per_ship
+
+    if defender_is_system:
+        actual_defender_dps = defender_dps_per_ship * config.DEFENDER_BONUS
+    else:
+        actual_defender_dps = defender_dps_per_ship
+
     attacker_hit_prob = _hit_probability(defender.ships)
     defender_hit_prob = _hit_probability(attacker.ships)
 
     raw_attacker_damage = (
         attacker.ships
-        * attacker_dps_per_ship
+        * actual_attacker_dps
         * dt
         * attacker_jitter
     )
     raw_defender_damage = (
         defender.ships
-        * defender_dps_per_ship
+        * actual_defender_dps
         * dt
         * defender_jitter
     )
