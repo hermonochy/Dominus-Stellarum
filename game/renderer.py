@@ -356,10 +356,11 @@ class Renderer:
         self.screen.blit(info_text, (self.screen.get_width() - info_text.get_width() - 18, bar_top - 24))
 
     def _draw_game_state(self, galaxy):
+        winner = galaxy.winner()
         if galaxy.player_won():
             self._draw_end_screen("VICTORY", "You control the galaxy. Press R to start anew.")
-        elif galaxy.player_defeated():
-            self._draw_end_screen("DEFEAT", "Your empire has fallen. Press R to try again.")
+        elif winner is not None:
+            self._draw_end_screen("DEFEAT", f"The {winner.name} rules the galaxy. Press R to try again.")
 
     def _draw_end_screen(self, title, subtitle):
         overlay = pygame.Surface(

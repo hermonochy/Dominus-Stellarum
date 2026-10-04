@@ -82,9 +82,7 @@ class GameApp:
     def _game_running(self):
         if self.paused:
             return False
-        if self.galaxy.player_won():
-            return False
-        if self.galaxy.player_defeated():
+        if self.galaxy.winner() is not None:
             return False
         return True
 
@@ -172,7 +170,7 @@ class GameApp:
             return True
 
         if key == pygame.K_SPACE:
-            if not self.galaxy.player_won() and not self.galaxy.player_defeated():
+            if self.galaxy.winner() is None:
                 self.paused = not self.paused
             return True
 
