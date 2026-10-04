@@ -145,6 +145,43 @@ MAX_SEND_PERCENT = 100
 SIM_SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
 DEFAULT_SPEED_INDEX = SIM_SPEEDS.index(1.0)
 
+DIFFICULTY_PRESETS = {
+    "Easy": {
+        "AI_THINK_INTERVAL": 1.6,
+        "AI_BOLDNESS_FACTOR": 0.05,
+        "AI_MIN_ATTACK_RATIO": 1.8,
+        "AI_BLITZ_POWER_RATIO": 2.4,
+        "AI_COOLDOWN": 14.0,
+        "AI_MAX_EXPANSIONS_PER_TICK": 2,
+    },
+    "Normal": {
+        "AI_THINK_INTERVAL": 1.0,
+        "AI_BOLDNESS_FACTOR": 0.1,
+        "AI_MIN_ATTACK_RATIO": 1.35,
+        "AI_BLITZ_POWER_RATIO": 1.8,
+        "AI_COOLDOWN": 10.0,
+        "AI_MAX_EXPANSIONS_PER_TICK": 3,
+    },
+    "Hard": {
+        "AI_THINK_INTERVAL": 0.7,
+        "AI_BOLDNESS_FACTOR": 0.18,
+        "AI_MIN_ATTACK_RATIO": 1.2,
+        "AI_BLITZ_POWER_RATIO": 1.55,
+        "AI_COOLDOWN": 7.0,
+        "AI_MAX_EXPANSIONS_PER_TICK": 4,
+    },
+    "Brutal": {
+        "AI_THINK_INTERVAL": 0.5,
+        "AI_BOLDNESS_FACTOR": 0.3,
+        "AI_MIN_ATTACK_RATIO": 1.1,
+        "AI_BLITZ_POWER_RATIO": 1.35,
+        "AI_COOLDOWN": 5.0,
+        "AI_MAX_EXPANSIONS_PER_TICK": 5,
+    },
+}
+
+DEFAULT_DIFFICULTY_INDEX = 1
+
 EMPIRE_COLORS = [
     (70, 170, 255),
     (240, 80, 80),

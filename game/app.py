@@ -3,6 +3,7 @@ import pygame
 from . import config
 from .ai import AIController
 from .galaxy import Galaxy
+from .menu import MainMenu
 from .player import PlayerController
 from .renderer import Renderer
 
@@ -26,9 +27,11 @@ class GameApp:
         )
 
         self.clock = pygame.time.Clock()
-        self.galaxy = Galaxy()
-        self.player = PlayerController(self.galaxy)
-        self.ai = AIController(self.galaxy)
+        self.menu = MainMenu()
+        self.in_menu = True
+        self.galaxy = None
+        self.player = None
+        self.ai = None
 
         self.camera = {
             'zoom': 1.0,
@@ -65,6 +68,10 @@ class GameApp:
             dt = self.clock.tick(config.FPS) / 1000.0
             dt = min(dt, 0.1)
 
+            if self.in_menu:
+                self._run_menu_frame()
+                continue
+
             self._handle_events()
             self.player.update(dt, self.camera)
 
@@ -78,6 +85,36 @@ class GameApp:
             pygame.display.flip()
 
         pygame.quit()
+
+    def _run_menu_frame(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+                return
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.running = False
+                return
+            if event.type == pygame.VIDEORESIZE and not self.fullscreen:
+                self.screen = pygame.display.set_mode((event.w, event.h), self.flags)
+                continue
+            self.menu.handle_event(event)
+
+        if self.menu.start_requested:
+            self._start_game()
+            return
+
+        self.menu.draw()
+        pygame.display.flip()
+
+    def _start_game(self):
+        self._new_game()
+        self.menu.reset()
+        self.in_menu = False
+
+    def _open_menu(self):
+        self.in_menu = True
+        self.paused = False
+        self.menu.reset()
 
     def _game_running(self):
         if self.paused:
@@ -155,10 +192,7 @@ class GameApp:
 
     def _handle_key(self, key):
         if key == pygame.K_ESCAPE:
-            if self.fullscreen:
-                self._toggle_fullscreen()
-            else:
-                self.running = False
+            self._open_menu()
             return True
 
         if key == pygame.K_f:
@@ -241,7 +275,10 @@ class GameApp:
 
     def _new_game(self):
         self.galaxy = Galaxy()
-        self.player.set_galaxy(self.galaxy)
+        if self.player is None:
+            self.player = PlayerController(self.galaxy)
+        else:
+            self.player.set_galaxy(self.galaxy)
         self.ai = AIController(self.galaxy)
         self.paused = False
         self.speed_index = config.DEFAULT_SPEED_INDEX

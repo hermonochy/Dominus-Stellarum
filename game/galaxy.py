@@ -117,9 +117,9 @@ class Galaxy:
                 positions.append(pos)
                 system_data.append((name, production))
                 arm_tags.append(arm_idx)
-
+                
         if len(positions) > core_count:
-            branches_to_add = int(config.STAR_COUNT * config.GALAXY_BRANCH_RATIO)
+            branches_to_add = min(int(config.STAR_COUNT * config.GALAXY_BRANCH_RATIO), config.STAR_COUNT - len(positions))
             for _ in range(branches_to_add * 3):
                 if len(positions) >= config.STAR_COUNT:
                     break
