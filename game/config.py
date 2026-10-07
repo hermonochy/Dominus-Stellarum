@@ -36,7 +36,7 @@ VALID_TARGET_COLOR = (120, 230, 160)
 PLAYER_ID = 0
 
 STAR_COUNT = 150
-EMPIRE_COUNT = 8
+EMPIRE_COUNT = 5
 
 GALAXY_CENTER_X = WIDTH // 2
 GALAXY_CENTER_Y = (
@@ -83,11 +83,11 @@ NEUTRAL_SHIPS_MAX = 0
 PRODUCTION_MIN = 0.45
 PRODUCTION_MAX = 1.25
 
-PRODUCTION_PEAK_SHARE = 0.2
-PRODUCTION_PEAK_EFFICIENCY = 1.2
-PRODUCTION_CURVE_STEEPNESS = 2.0
-PRODUCTION_MIN_EFFICIENCY = 0.1
-PRODUCTION_ZERO_CROSS_IN = 0.9
+# Ship production is a quadratic: AX^2 + BX + C
+
+PRODUCTION_A = -4.0
+PRODUCTION_B =  3.0
+PRODUCTION_C =  0.5
 
 FLEET_SPEED = 10.0
 
@@ -191,6 +191,8 @@ EMPIRE_COLORS = [
     (240, 110, 200),
     (80, 220, 215),
     (245, 135, 70),
+    (255, 255, 255),
+    (0, 0, 0),
 ]
 
 EMPIRE_NAMES = [
@@ -202,4 +204,6 @@ EMPIRE_NAMES = [
     "Orchid Republic",
     "Cyan League",
     "Ember Coalition",
+    "Sons of Purity",
+    "Hand of the Void",
 ]

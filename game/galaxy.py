@@ -338,12 +338,10 @@ class Galaxy:
         if total_systems <= 0:
             return 1.0
         share = max(0.001, min(1.0, owned_count / total_systems))
-        efficiency = config.PRODUCTION_PEAK_EFFICIENCY - config.PRODUCTION_CURVE_STEEPNESS * abs(share - config.PRODUCTION_PEAK_SHARE)
-        efficiency = max(config.PRODUCTION_MIN_EFFICIENCY, efficiency)
-        if share > config.PRODUCTION_ZERO_CROSS_IN:
-            overrun = (share - config.PRODUCTION_ZERO_CROSS_IN) / (1.0 - config.PRODUCTION_ZERO_CROSS_IN)
-            efficiency *= 1.0 - overrun
+        # Ship production is a quadratic: AX^2 + BX + C
+        efficiency = config.PRODUCTION_A*share**2 + config.PRODUCTION_B*share + config.PRODUCTION_C
         return efficiency
+        
 
     def _produce_ships(self, dt: float) -> None:
         owned_counts: dict[int, int] = {}
