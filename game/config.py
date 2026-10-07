@@ -103,8 +103,8 @@ COMBAT_JITTER_MIN = 0.55
 COMBAT_JITTER_MAX = 1.45
 
 DEFENDER_BONUS = 1.1
-ATTACKER_DAMAGE_PER_SHIP = 0.1
-DEFENDER_DAMAGE_PER_SHIP = 0.15
+ATTACKER_DAMAGE_PER_SHIP = 0.5
+DEFENDER_DAMAGE_PER_SHIP = 0.75
 ATTACKER_SHOTS_PER_SECOND = 5.0
 DEFENDER_SHOTS_PER_SECOND = 8.0
 
@@ -114,15 +114,15 @@ FLEET_VS_FLEET_PER_SHIP = 0.12
 SHOT_LIFETIME = 0.16
 MAX_VISIBLE_SHOTS = 500
 
-GUN_RANGE_MIN = 25.0
-GUN_RANGE_MAX = 140.0
-GUN_RANGE_MAX_SHIPS = 10000.0
+GUN_RANGE_BASE = 25.0
+GUN_RANGE_EXPONENT = 0.1505
+
 GUN_RANGE_FILL_ALPHA = 18
 GUN_RANGE_RING_ALPHA = 70
 
 AI_THINK_INTERVAL = 1.0
 AI_ATTACK_THRESHOLD = 20.0
-AI_RESERVE_SHIPS = 8.0
+AI_RESERVE_SHIPS = 1.0
 AI_MIN_ATTACK_RATIO = 1.35
 AI_BOLDNESS_FACTOR = 0.1
 AI_COOLDOWN = 10.0
@@ -152,7 +152,7 @@ DIFFICULTY_PRESETS = {
         "AI_MIN_ATTACK_RATIO": 1.8,
         "AI_BLITZ_POWER_RATIO": 2.4,
         "AI_COOLDOWN": 14.0,
-        "AI_MAX_EXPANSIONS_PER_TICK": 2,
+        "AI_MAX_EXPANSIONS_PER_TICK": 1,
     },
     "Normal": {
         "AI_THINK_INTERVAL": 1.0,
@@ -160,7 +160,7 @@ DIFFICULTY_PRESETS = {
         "AI_MIN_ATTACK_RATIO": 1.35,
         "AI_BLITZ_POWER_RATIO": 1.8,
         "AI_COOLDOWN": 10.0,
-        "AI_MAX_EXPANSIONS_PER_TICK": 3,
+        "AI_MAX_EXPANSIONS_PER_TICK": 2,
     },
     "Hard": {
         "AI_THINK_INTERVAL": 0.7,
@@ -168,7 +168,7 @@ DIFFICULTY_PRESETS = {
         "AI_MIN_ATTACK_RATIO": 1.2,
         "AI_BLITZ_POWER_RATIO": 1.55,
         "AI_COOLDOWN": 7.0,
-        "AI_MAX_EXPANSIONS_PER_TICK": 4,
+        "AI_MAX_EXPANSIONS_PER_TICK": 3,
     },
     "Brutal": {
         "AI_THINK_INTERVAL": 0.5,
@@ -196,12 +196,12 @@ EMPIRE_COLORS = [
 ]
 
 EMPIRE_NAMES = [
-    "Terran Union",
+    "Terran Empire",
     "Crimson Dominion",
-    "Verdant Compact",
+    "Emerald Empire",
     "Solar Ascendancy",
     "Violet Directorate",
-    "Orchid Republic",
+    "Rose Republic",
     "Cyan League",
     "Ember Coalition",
     "Sons of Purity",

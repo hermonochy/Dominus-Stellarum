@@ -9,9 +9,8 @@ from . import config
 from .models import CombatShot, Fleet, StarSystem
 
 def gun_range(entity) -> float:
-    ships = min(entity.ships, config.GUN_RANGE_MAX_SHIPS)
-    factor = math.log(1.0 + ships) / math.log(1.0 + config.GUN_RANGE_MAX_SHIPS)
-    return config.GUN_RANGE_MIN + (config.GUN_RANGE_MAX - config.GUN_RANGE_MIN) * factor
+    ships = max(1.0, entity.ships)
+    return config.GUN_RANGE_BASE * ships ** config.GUN_RANGE_EXPONENT
 
 def _hit_probability(ship_count: float) -> float:
     if ship_count <= 0:

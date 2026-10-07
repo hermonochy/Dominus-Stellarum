@@ -3,6 +3,7 @@ import pygame
 
 from . import config
 from . import ui
+from .combat import gun_range
 from .galaxy import Galaxy
 from .player import PlayerController
 
@@ -60,16 +61,6 @@ class Renderer:
             font = pygame.font.Font(None, size)
         return font
 
-    def _gun_range(self, system) -> float:
-        ships = min(system.ships, config.GUN_RANGE_MAX_SHIPS)
-        factor = math.log(1.0 + ships) / math.log(1.0 + config.GUN_RANGE_MAX_SHIPS)
-        return config.GUN_RANGE_MIN + (config.GUN_RANGE_MAX - config.GUN_RANGE_MIN) * factor
-
-    def _fleet_range(self, fleet) -> float:
-        ships = min(fleet.ships, config.GUN_RANGE_MAX_SHIPS)
-        factor = math.log(1.0 + ships) / math.log(1.0 + config.GUN_RANGE_MAX_SHIPS)
-        return config.GUN_RANGE_MIN + (config.GUN_RANGE_MAX - config.GUN_RANGE_MIN) * factor
-
     def _get_range_surface(self, radius_i: int, color: tuple[int, int, int]) -> pygame.Surface:
         key = (radius_i, color)
         cached = self._range_cache.get(key)
@@ -99,12 +90,12 @@ class Renderer:
             self._range_cache_zoom = camera['zoom']
 
         entities = [
-            (self.world_to_screen(system.pos), self._gun_range(system), system.owner_id)
+            (self.world_to_screen(system.pos), gun_range(system), system.owner_id)
             for system in galaxy.systems
             if system.owner_id is not None
         ]
         entities.extend(
-            (self.world_to_screen(fleet.position), self._fleet_range(fleet), fleet.owner_id)
+            (self.world_to_screen(fleet.position), gun_range(fleet), fleet.owner_id)
             for fleet in galaxy.fleets
         )
 
@@ -309,8 +300,7 @@ class Renderer:
         else:
             system = galaxy.systems[selected_id]
             reachable = len(galaxy.reachable_system_ids(selected_id))
-            gun_range = self._gun_range(system)
-            lines = [system.name, f"Ships: {int(system.ships)}", f"Production: {system.production:.2f}/s", f"Gun range: {gun_range:.0f}", f"Hyperlanes: {len(galaxy.neighbors[system.id])}", f"Reachable systems: {reachable}", self._fleet_order_label(player)]
+            lines = [system.name, f"Ships: {int(system.ships)}", f"Production: {system.production:.2f}/s", f"Gun range: {gun_range(system):.0f}", f"Hyperlanes: {len(galaxy.neighbors[system.id])}", f"Reachable systems: {reachable}", self._fleet_order_label(player)]
 
         row_height = max(10, available // len(lines))
         longest_line = max(lines, key=len)
