@@ -27,6 +27,7 @@ class Galaxy:
         self.grid_cell_size = config.COMBAT_RANGE * 2.0
         self.spatial_grid: dict[tuple[int, int], list[int]] = {}
         self.path_cache: dict[tuple[int, int], Optional[tuple[int, ...]]] = {}
+        self._ship_count_cache: Optional[dict[int, float]] = None
 
         self.generate()
 
@@ -43,12 +44,14 @@ class Galaxy:
         self.active_combat.clear()
         self.spatial_grid.clear()
         self.path_cache.clear()
+        self._ship_count_cache = None
         self._create_systems()
         self._create_empires()
         self._place_empires()
         self._build_spatial_grid()
 
     def update(self, dt: float) -> None:
+        self._ship_count_cache = None
         self._produce_ships(dt)
         self._update_fleets(dt)
         self._update_standoff_combat(dt)
@@ -588,6 +591,41 @@ class Galaxy:
         if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
 
+    def _build_fleet_grid(self) -> dict[tuple[int, int], list[Fleet]]:
+        cell_size = self.grid_cell_size
+        fleet_grid: dict[tuple[int, int], list[Fleet]] = {}
+        for fleet in self.fleets:
+            key = (int(fleet.position.x // cell_size), int(fleet.position.y // cell_size))
+            bucket = fleet_grid.get(key)
+            if bucket is None:
+                fleet_grid[key] = [fleet]
+            else:
+                bucket.append(fleet)
+        return fleet_grid
+
+    def _nearby_fleets(
+        self,
+        pos: pygame.Vector2,
+        radius: float,
+        fleet_grid: dict[tuple[int, int], list[Fleet]],
+    ) -> list[Fleet]:
+        cell_size = self.grid_cell_size
+        col_min = int((pos.x - radius) // cell_size)
+        col_max = int((pos.x + radius) // cell_size)
+        row_min = int((pos.y - radius) // cell_size)
+        row_max = int((pos.y + radius) // cell_size)
+
+        result: list[Fleet] = []
+        for col in range(col_min, col_max + 1):
+            for row in range(row_min, row_max + 1):
+                bucket = fleet_grid.get((col, row))
+                if not bucket:
+                    continue
+                for fleet in bucket:
+                    if fleet.position.distance_to(pos) <= radius:
+                        result.append(fleet)
+        return result
+
     def _update_standoff_combat(self, dt: float) -> None:
         for system in self.systems:
             if system.owner_id is None or system.ships <= config.COMBAT_MIN_SHIPS:
@@ -605,7 +643,10 @@ class Galaxy:
                 self.combat_shots.extend(shots)
                 self.active_combat[other.id] = self.active_combat.get(other.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
 
-        for fleet in list(self.fleets):
+        fleet_grid = self._build_fleet_grid()
+        seen_pairs: set[tuple[int, int]] = set()
+
+        for fleet in self.fleets:
             if fleet.owner_id is None or fleet.ships <= config.COMBAT_MIN_SHIPS:
                 continue
             shooter_range = gun_range(fleet)
@@ -620,14 +661,17 @@ class Galaxy:
                 shots = fire_at_target(fleet, system, fleet.position, system.pos, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng)
                 self.combat_shots.extend(shots)
                 self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.FLEET_VS_FLEET_PER_SHIP * config.DEFENDER_BONUS
-            for other in self.fleets:
+            for other in self._nearby_fleets(fleet.position, shooter_range, fleet_grid):
                 if other is fleet or other.owner_id == fleet.owner_id:
                     continue
                 if other.ships <= config.COMBAT_MIN_SHIPS:
                     continue
-                if fleet.position.distance_to(other.position) > shooter_range:
+                pair = (fleet.id, other.id) if fleet.id < other.id else (other.id, fleet.id)
+                if pair in seen_pairs:
                     continue
+                seen_pairs.add(pair)
                 shots = fire_at_target(fleet, other, fleet.position, other.position, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng)
+                shots += fire_at_target(other, fleet, other.position, fleet.position, dt, config.FLEET_VS_FLEET_PER_SHIP, self.empires[other.owner_id].color, self.rng)
                 self.combat_shots.extend(shots)
 
         self.fleets = [f for f in self.fleets if f.ships > config.COMBAT_MIN_SHIPS]
@@ -666,9 +710,15 @@ class Galaxy:
         return sum(1 for system in self.systems if system.owner_id == empire_id)
 
     def empire_ship_count(self, empire_id: int) -> float:
-        stationed = sum(system.ships for system in self.systems if system.owner_id == empire_id)
-        travelling = sum(fleet.ships for fleet in self.fleets if fleet.owner_id == empire_id)
-        return stationed + travelling
+        if self._ship_count_cache is None:
+            counts: dict[int, float] = {}
+            for system in self.systems:
+                if system.owner_id is not None:
+                    counts[system.owner_id] = counts.get(system.owner_id, 0.0) + system.ships
+            for fleet in self.fleets:
+                counts[fleet.owner_id] = counts.get(fleet.owner_id, 0.0) + fleet.ships
+            self._ship_count_cache = counts
+        return self._ship_count_cache.get(empire_id, 0.0)
 
     def empire_strength(self, empire_id: int) -> float:
         planets = self.empire_system_count(empire_id)

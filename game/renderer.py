@@ -15,7 +15,16 @@ class Renderer:
         self.base_height = 800
         self._range_cache: dict[tuple[int, tuple[int, int, int]], pygame.Surface] = {}
         self._range_cache_zoom = camera['zoom']
+        self._font_size = None
+        self._ship_font_cache: dict[int, pygame.font.Font] = {}
+        self._ship_label_cache: dict[tuple[int, str], pygame.Surface] = {}
+        self._fleet_label_cache: dict[str, pygame.Surface] = {}
         self._recache_fonts()
+        self._bottom_font_key = None
+        self._empire_row_font = None
+        self._empire_title_font = None
+        self._selection_font_key = None
+        self._selection_body_font = None
 
     def _recache_fonts(self):
         w = self.screen.get_width()
@@ -23,10 +32,17 @@ class Renderer:
         scale_x = w / self.base_width
         scale_y = h / self.base_height
         scale = min(scale_x, scale_y, 1.5)
-        self.font = pygame.font.Font(None, int(22 * scale))
-        self.small_font = pygame.font.Font(None, int(18 * scale))
-        self.tiny_font = pygame.font.Font(None, int(14 * scale))
-        self.huge_font = pygame.font.Font(None, int(64 * scale))
+        font_size = int(22 * scale), int(18 * scale), int(14 * scale), int(64 * scale)
+        if font_size == self._font_size:
+            return
+        self._font_size = font_size
+        self.font = pygame.font.Font(None, font_size[0])
+        self.small_font = pygame.font.Font(None, font_size[1])
+        self.tiny_font = pygame.font.Font(None, font_size[2])
+        self.huge_font = pygame.font.Font(None, font_size[3])
+        self._ship_font_cache.clear()
+        self._ship_label_cache.clear()
+        self._fleet_label_cache.clear()
 
     def world_to_screen(self, world_pos):
         return pygame.Vector2(
@@ -43,11 +59,12 @@ class Renderer:
     def draw(self, galaxy, player, paused, speed, camera):
         self._recache_fonts()
         self.screen.fill(config.BACKGROUND)
-        self._draw_hyperlanes(galaxy, player, camera)
+        valid_targets = player.valid_target_ids()
+        self._draw_hyperlanes(galaxy, player, camera, valid_targets)
         self._draw_gun_ranges(galaxy, camera)
         self._draw_fleets(galaxy, camera)
         self._draw_combat_shots(galaxy, camera)
-        self._draw_systems(galaxy, player, camera)
+        self._draw_systems(galaxy, player, camera, valid_targets)
         self._draw_top_bar(galaxy, player, paused, speed)
         self._draw_bottom_bar(galaxy, player)
         self._draw_camera_info(camera)
@@ -89,63 +106,101 @@ class Renderer:
             self._range_cache.clear()
             self._range_cache_zoom = camera['zoom']
 
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+        margin = 260 * zoom
+
         entities = [
-            (self.world_to_screen(system.pos), gun_range(system), system.owner_id)
+            (system.pos, system.owner_id, gun_range(system))
             for system in galaxy.systems
             if system.owner_id is not None
         ]
         entities.extend(
-            (self.world_to_screen(fleet.position), gun_range(fleet), fleet.owner_id)
+            (fleet.position, fleet.owner_id, gun_range(fleet))
             for fleet in galaxy.fleets
         )
 
-        for center, world_radius, owner_id in entities:
-            radius = world_radius * camera['zoom']
+        for world_pos, owner_id, world_radius in entities:
+            radius = world_radius * zoom
             radius_i = int(radius)
             if radius_i < 3:
+                continue
+
+            screen_x = world_pos.x * zoom + offset_x
+            screen_y = world_pos.y * zoom + offset_y
+            if screen_x < -margin - radius or screen_x > sw + margin + radius:
+                continue
+            if screen_y < -margin - radius or screen_y > sh + margin + radius:
                 continue
 
             color = galaxy.empires[owner_id].color
             surface = self._get_range_surface(radius_i, color)
 
-            topleft = (int(center.x) - radius_i - 2, int(center.y) - radius_i - 2)
+            topleft = (int(screen_x) - radius_i - 2, int(screen_y) - radius_i - 2)
             self.screen.blit(surface, topleft)
 
-    def _draw_hyperlanes(self, galaxy, player, camera):
+    def _draw_hyperlanes(self, galaxy, player, camera, valid_targets):
         selected = player.selected_system_id
-        valid_targets = player.valid_target_ids()
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+        line_width = int(max(2, 3 if selected is not None else 2) * zoom)
+
         for first_id, second_id in galaxy.edges:
             first = galaxy.systems[first_id]
             second = galaxy.systems[second_id]
-            first_screen = self.world_to_screen(first.pos)
-            second_screen = self.world_to_screen(second.pos)
+            first_x = first.pos.x * zoom + offset_x
+            first_y = first.pos.y * zoom + offset_y
+            second_x = second.pos.x * zoom + offset_x
+            second_y = second.pos.y * zoom + offset_y
+
+            if max(first_x, second_x) < -20 or min(first_x, second_x) > sw + 20:
+                continue
+            if max(first_y, second_y) < -20 or min(first_y, second_y) > sh + 20:
+                continue
+
             highlighted = selected is not None and (
                 (first_id == selected and second_id in valid_targets) or
                 (second_id == selected and first_id in valid_targets)
             )
-            width = int(max(2, 3 if highlighted else 2) * camera['zoom'])
             color = config.LANE_HIGHLIGHT if highlighted else config.LANE_COLOR
-            pygame.draw.line(self.screen, color, (first_screen.x, first_screen.y), (second_screen.x, second_screen.y), width)
+            pygame.draw.line(self.screen, color, (first_x, first_y), (second_x, second_y), line_width)
 
     def _draw_fleets(self, galaxy, camera):
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+
         for fleet in galaxy.fleets:
             position = fleet.position
-            target = galaxy.systems[fleet.target_id]
+            screen_x = position.x * zoom + offset_x
+            screen_y = position.y * zoom + offset_y
+            if screen_x < -30 or screen_x > sw + 30:
+                continue
+            if screen_y < -30 or screen_y > sh + 30:
+                continue
+
             color = galaxy.empires[fleet.owner_id].color
-            position_screen = self.world_to_screen(position)
+            sx = int(screen_x)
+            sy = int(screen_y)
 
             if len(fleet.route) > 1 and fleet.route_index < len(fleet.route):
-                current_node_id = fleet.route[fleet.route_index - 1]
-                next_node_id = fleet.route[fleet.route_index]
-                current_node = galaxy.systems[current_node_id]
-                next_node = galaxy.systems[next_node_id]
+                current_node = galaxy.systems[fleet.route[fleet.route_index - 1]]
+                next_node = galaxy.systems[fleet.route[fleet.route_index]]
                 direction = next_node.pos - current_node.pos
             else:
-                direction = target.pos - position
+                direction = galaxy.systems[fleet.target_id].pos - position
 
             fleet_size = max(1, int(fleet.ships))
             base_size = 3 + fleet_size * 0.15
-            shape_size = min(base_size * camera['zoom'], 18)
+            shape_size = min(base_size * zoom, 18)
 
             if direction.length_squared() > 0:
                 direction = direction.normalize()
@@ -155,80 +210,159 @@ class Renderer:
                 tail_len = shape_size * 0.6
                 half_width = shape_size * 0.4
 
-                tip = position + direction * head_len
-                left_wing = position - direction * tail_len + perp * half_width
-                right_wing = position - direction * tail_len - perp * half_width
+                tip_x = position.x + direction.x * head_len
+                tip_y = position.y + direction.y * head_len
+                left_x = position.x - direction.x * tail_len + perp.x * half_width
+                left_y = position.y - direction.y * tail_len + perp.y * half_width
+                right_x = position.x - direction.x * tail_len - perp.x * half_width
+                right_y = position.y - direction.y * tail_len - perp.y * half_width
 
                 points = [
-                    (int(self.world_to_screen(tip).x), int(self.world_to_screen(tip).y)),
-                    (int(self.world_to_screen(left_wing).x), int(self.world_to_screen(left_wing).y)),
-                    (int(self.world_to_screen(right_wing).x), int(self.world_to_screen(right_wing).y))
+                    (int(tip_x * zoom + offset_x), int(tip_y * zoom + offset_y)),
+                    (int(left_x * zoom + offset_x), int(left_y * zoom + offset_y)),
+                    (int(right_x * zoom + offset_x), int(right_y * zoom + offset_y)),
                 ]
 
                 pygame.draw.polygon(self.screen, color, points)
-                outline_color = tuple(min(255, c + 50) for c in color)
+                outline_color = (
+                    min(255, color[0] + 50),
+                    min(255, color[1] + 50),
+                    min(255, color[2] + 50),
+                )
                 pygame.draw.polygon(self.screen, outline_color, points, 1)
 
-            label = self.small_font.render(str(int(fleet.ships)), True, config.TEXT)
-            label_bg = pygame.Surface((label.get_width() + 4, label.get_height() + 2), pygame.SRCALPHA)
-            label_bg.fill((0, 0, 0, 160))
-            self.screen.blit(label_bg, (int(position_screen.x) - label_bg.get_width() // 2, int(position_screen.y) - int(shape_size) - 8))
-            self.screen.blit(label, (int(position_screen.x) - label.get_width() // 2 + 2, int(position_screen.y) - int(shape_size) - 7))
+            text = str(int(fleet.ships))
+            label = self._fleet_label_cache.get(text)
+            if label is None:
+                if len(self._fleet_label_cache) > 512:
+                    self._fleet_label_cache.clear()
+                label = self.small_font.render(text, True, config.TEXT)
+                self._fleet_label_cache[text] = label
+
+            lx = sx - label.get_width() // 2 + 2
+            ly = sy - int(shape_size) - 7
+            label_bg_rect = pygame.Rect(lx - 2, ly - 1, label.get_width() + 4, label.get_height() + 2)
+            bg = self._fleet_label_cache.get("___bg___" + str(label.get_width()) + "_" + str(label.get_height()))
+            if bg is None:
+                bg = pygame.Surface((label.get_width() + 4, label.get_height() + 2), pygame.SRCALPHA)
+                bg.fill((0, 0, 0, 160))
+                self._fleet_label_cache["___bg___" + str(label.get_width()) + "_" + str(label.get_height())] = bg
+            self.screen.blit(bg, (lx - 2, ly - 1))
+            self.screen.blit(label, (lx, ly))
 
     def _draw_combat_shots(self, galaxy, camera):
-        for shot in galaxy.combat_shots:
-            ratio = max(0.0, min(1.0, shot.lifetime / shot.max_lifetime))
-            color = tuple(int(channel * ratio) for channel in shot.color)
-            start_screen = self.world_to_screen(shot.start)
-            end_screen = self.world_to_screen(shot.end)
-            thickness = int(max(1, 3 * camera['zoom']))
-            pygame.draw.line(self.screen, color, (start_screen.x, start_screen.y), (end_screen.x, end_screen.y), thickness)
-            pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (int(end_screen.x), int(end_screen.y)), int(max(1, 3 * camera['zoom'])))
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+        thickness = int(max(1, 3 * zoom))
 
-    def _draw_systems(self, galaxy, player, camera):
-        valid_targets = player.valid_target_ids()
+        for shot in galaxy.combat_shots:
+            start_x = shot.start.x * zoom + offset_x
+            start_y = shot.start.y * zoom + offset_y
+            end_x = shot.end.x * zoom + offset_x
+            end_y = shot.end.y * zoom + offset_y
+
+            if max(start_x, end_x) < -20 or min(start_x, end_x) > sw + 20:
+                continue
+            if max(start_y, end_y) < -20 or min(start_y, end_y) > sh + 20:
+                continue
+
+            ratio = max(0.0, min(1.0, shot.lifetime / shot.max_lifetime))
+            color = (
+                int(shot.color[0] * ratio),
+                int(shot.color[1] * ratio),
+                int(shot.color[2] * ratio),
+            )
+            pygame.draw.line(self.screen, color, (start_x, start_y), (end_x, end_y), thickness)
+            dot_radius = max(1, int(3 * zoom))
+            pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (int(end_x), int(end_y)), dot_radius)
+
+    def _get_ship_font(self, font_size: int) -> pygame.font.Font:
+        font = self._ship_font_cache.get(font_size)
+        if font is None:
+            if len(self._ship_font_cache) > 32:
+                self._ship_font_cache.clear()
+            font = pygame.font.Font(None, font_size)
+            self._ship_font_cache[font_size] = font
+        return font
+
+    def _get_ship_label(self, font_size: int, text: str) -> pygame.Surface:
+        key = (font_size, text)
+        surface = self._ship_label_cache.get(key)
+        if surface is None:
+            if len(self._ship_label_cache) > 1024:
+                self._ship_label_cache.clear()
+            font = self._get_ship_font(font_size)
+            surface = font.render(text, True, config.TEXT)
+            self._ship_label_cache[key] = surface
+        return surface
+
+    def _draw_systems(self, galaxy, player, camera, valid_targets):
         pulse_phase = pygame.time.get_ticks() / 500.0
-        base_star_radius = config.STAR_RADIUS * camera['zoom']
-        base_owned_radius = config.OWNED_STAR_RADIUS * camera['zoom']
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        base_star_radius = config.STAR_RADIUS * zoom
+        base_owned_radius = config.OWNED_STAR_RADIUS * zoom
+        font_size = int(18 * max(1, int(zoom)))
+
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+        cull_left = -60.0
+        cull_top = -60.0
+        cull_right = sw + 60.0
+        cull_bottom = sh + 60.0
+
+        hovered_id = player.hovered_system_id
+        selected_id = player.selected_system_id
+        gathering_points = galaxy.gathering_points
+        empires_colors = [empire.color for empire in galaxy.empires]
+
         for system in galaxy.systems:
-            system_screen = self.world_to_screen(system.pos)
+            screen_x = system.pos.x * zoom + offset_x
+            screen_y = system.pos.y * zoom + offset_y
+            if screen_x < cull_left or screen_x > cull_right:
+                continue
+            if screen_y < cull_top or screen_y > cull_bottom:
+                continue
+            sx = int(screen_x)
+            sy = int(screen_y)
+
             if system.owner_id is None:
                 color = config.NEUTRAL_COLOR
                 radius = base_star_radius
-            else:
-                color = galaxy.empires[system.owner_id].color
-                radius = base_owned_radius
-            if system.owner_id is not None:
-                pulse_offset = int(math.sin(pulse_phase + system.id) * 2 * camera['zoom'])
-                display_radius = radius + pulse_offset
-            else:
                 display_radius = radius
+            else:
+                color = empires_colors[system.owner_id]
+                radius = base_owned_radius
+                pulse_offset = int(math.sin(pulse_phase + system.id) * 2 * zoom)
+                display_radius = radius + pulse_offset
             if system.id in valid_targets:
-                glow_radius = radius + 10 * camera['zoom'] + int(math.sin(pulse_phase * 2) * 3 * camera['zoom'])
-                pygame.draw.circle(self.screen, config.VALID_TARGET_COLOR, (int(system_screen.x), int(system_screen.y)), int(glow_radius), 2)
-            if system.id == player.hovered_system_id:
-                pygame.draw.circle(self.screen, (190, 200, 220), (int(system_screen.x), int(system_screen.y)), int(radius + 6 * camera['zoom']), 2)
-            if system.id == player.selected_system_id:
-                selection_size = radius + 12 * camera['zoom'] + int(math.sin(pulse_phase * 1.5) * 2 * camera['zoom'])
-                pygame.draw.circle(self.screen, config.SELECTION_COLOR, (int(system_screen.x), int(system_screen.y)), int(selection_size), 3)
-            if system.id in galaxy.gathering_points:
-                gr = radius + 16 * camera['zoom'] + int(math.sin(pulse_phase * 2.0 + system.id) * 3 * camera['zoom'])
-                gx, gy = int(system_screen.x), int(system_screen.y)
+                glow_radius = radius + 10 * zoom + int(math.sin(pulse_phase * 2) * 3 * zoom)
+                pygame.draw.circle(self.screen, config.VALID_TARGET_COLOR, (sx, sy), int(glow_radius), 2)
+            if system.id == hovered_id:
+                pygame.draw.circle(self.screen, (190, 200, 220), (sx, sy), int(radius + 6 * zoom), 2)
+            if system.id == selected_id:
+                selection_size = radius + 12 * zoom + int(math.sin(pulse_phase * 1.5) * 2 * zoom)
+                pygame.draw.circle(self.screen, config.SELECTION_COLOR, (sx, sy), int(selection_size), 3)
+            if system.id in gathering_points:
+                gr = radius + 16 * zoom + int(math.sin(pulse_phase * 2.0 + system.id) * 3 * zoom)
                 c = config.GATHERING_POINT_COLOR
-                pygame.draw.circle(self.screen, c, (gx, gy), int(gr), 2)
-                arm = int(6 * camera['zoom'])
+                pygame.draw.circle(self.screen, c, (sx, sy), int(gr), 2)
+                arm = int(6 * zoom)
                 corner = int(gr * 0.7)
                 for dx, dy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
-                    cx = gx + dx * corner
-                    cy = gy + dy * corner
+                    cx = sx + dx * corner
+                    cy = sy + dy * corner
                     pygame.draw.line(self.screen, c, (cx - dx * arm, cy), (cx + dx * arm, cy), 2)
                     pygame.draw.line(self.screen, c, (cx, cy - dy * arm), (cx, cy + dy * arm), 2)
-            pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (int(system_screen.x), int(system_screen.y)), int(display_radius + 2 * camera['zoom']))
-            pygame.draw.circle(self.screen, color, (int(system_screen.x), int(system_screen.y)), int(display_radius))
-            font_scale = max(1, int(camera['zoom']))
-            ship_font = pygame.font.Font(None, int(18 * font_scale))
-            ship_text = ship_font.render(str(int(system.ships)), True, config.TEXT)
-            self.screen.blit(ship_text, (int(system_screen.x) + int(display_radius) + 5, int(system_screen.y) - 8))
+            dr = int(display_radius)
+            pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (sx, sy), dr + int(2 * zoom))
+            pygame.draw.circle(self.screen, color, (sx, sy), dr)
+            label = self._get_ship_label(font_size, str(int(system.ships)))
+            self.screen.blit(label, (sx + dr + 5, sy - 8))
 
     def _fleet_order_label(self, player):
         if player.use_percent:
@@ -282,16 +416,17 @@ class Renderer:
         empire_count = len(galaxy.empires)
         empire_row_h = max(8, available // (empire_count + 1))
 
-        sample_row = "1. Terran Union [YOU]  123 sys  99999 ships"
-        empire_row_font = self._fit_font(empire_row_h, sample_row)
-        empire_title_font = self._fit_font(empire_row_h, "GALACTIC POWERS")
+        if self._bottom_font_key != (empire_row_h, empire_count):
+            self._bottom_font_key = (empire_row_h, empire_count)
+            self._empire_row_font = self._fit_font(empire_row_h, "1. Terran Union [YOU]  123 sys  99999 ships")
+            self._empire_title_font = self._fit_font(empire_row_h, "GALACTIC POWERS")
 
         if player.message:
             message = self.small_font.render(player.message, True, config.SELECTION_COLOR)
             self.screen.blit(message, message.get_rect(midbottom=(sw // 2, bottom_y - 6)))
 
         self._draw_selection_panel(galaxy, player, bottom_y, pad_top, available)
-        self._draw_empire_panel(galaxy, bottom_y, pad_top, empire_row_h, empire_title_font, empire_row_font)
+        self._draw_empire_panel(galaxy, bottom_y, pad_top, empire_row_h, self._empire_title_font, self._empire_row_font)
 
     def _draw_selection_panel(self, galaxy, player, y, pad_top, available):
         selected_id = player.selected_system_id
@@ -304,7 +439,12 @@ class Renderer:
 
         row_height = max(10, available // len(lines))
         longest_line = max(lines, key=len)
-        body_font = self._fit_font(row_height, longest_line)
+
+        font_key = (row_height, longest_line)
+        if self._selection_font_key != font_key:
+            self._selection_font_key = font_key
+            self._selection_body_font = self._fit_font(row_height, longest_line)
+        body_font = self._selection_body_font
 
         cursor_y = y + pad_top
         for index, line in enumerate(lines):
