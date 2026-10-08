@@ -120,7 +120,7 @@ class Galaxy:
                 positions.append(pos)
                 system_data.append((name, production))
                 arm_tags.append(arm_idx)
-                
+
         if len(positions) > core_count:
             branches_to_add = min(int(config.STAR_COUNT * config.GALAXY_BRANCH_RATIO), config.STAR_COUNT - len(positions))
             for _ in range(branches_to_add * 3):
@@ -344,7 +344,6 @@ class Galaxy:
         # Ship production is a quadratic: AX^2 + BX + C
         efficiency = config.PRODUCTION_A*share**2 + config.PRODUCTION_B*share + config.PRODUCTION_C
         return efficiency
-        
 
     def _produce_ships(self, dt: float) -> None:
         owned_counts: dict[int, int] = {}
@@ -537,23 +536,6 @@ class Galaxy:
         self.combat_shots = [shot for shot in self.combat_shots if shot.lifetime > 0.0]
 
         for fleet in self.fleets:
-            if fleet.siege_target_id is not None:
-                system = self.systems[fleet.siege_target_id]
-                if system.owner_id != fleet.owner_id and system.ships > config.COMBAT_MIN_SHIPS:
-                    fleet.position = system.pos
-                    fleet_color = self.empires[fleet.owner_id].color
-                    system_color = self.empires[system.owner_id].color if system.owner_id is not None else config.NEUTRAL_COLOR
-                    shots = fire_at_target(fleet, system, fleet.position, system.pos, dt, config.ATTACKER_DAMAGE_PER_SHIP, fleet_color, self.rng)
-                    shots += fire_at_target(system, fleet, system.pos, fleet.position, dt, config.DEFENDER_DAMAGE_PER_SHIP, system_color, self.rng, True)
-                    self.combat_shots.extend(shots)
-                    self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.DEFENDER_DAMAGE_PER_SHIP
-                    continue
-                if system.owner_id != fleet.owner_id:
-                    system.owner_id = fleet.owner_id
-                    system.ships = 0.0
-                fleet.siege_target_id = None
-                fleet.segment_progress = 0.0
-
             current_id = fleet.route[fleet.route_index - 1]
             next_id = fleet.route[fleet.route_index] if fleet.route_index < len(fleet.route) else fleet.route[-1]
             current_system = self.systems[current_id]
@@ -574,7 +556,12 @@ class Galaxy:
                     fleet.segment_progress = 0.0
                     if next_system.owner_id != fleet.owner_id:
                         if next_system.ships > config.COMBAT_MIN_SHIPS:
-                            fleet.siege_target_id = next_id
+                            if fleet.ships > next_system.ships:
+                                next_system.owner_id = fleet.owner_id
+                                next_system.ships = 0.0
+                            else:
+                                next_system.ships = max(0.0, next_system.ships - fleet.ships)
+                                fleet.ships = 0.0
                         else:
                             next_system.owner_id = fleet.owner_id
                             next_system.ships = 0.0
@@ -655,8 +642,6 @@ class Galaxy:
                 if system.owner_id is None or system.owner_id == fleet.owner_id:
                     continue
                 if system.ships <= config.COMBAT_MIN_SHIPS:
-                    continue
-                if fleet.siege_target_id == system.id:
                     continue
                 shots = fire_at_target(fleet, system, fleet.position, system.pos, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng)
                 self.combat_shots.extend(shots)

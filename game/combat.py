@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+from typing import Optional
 
 import pygame
 
@@ -10,7 +11,10 @@ from .models import CombatShot, Fleet, StarSystem
 
 def gun_range(entity) -> float:
     ships = max(1.0, entity.ships)
-    return config.GUN_RANGE_BASE * ships ** config.GUN_RANGE_EXPONENT
+    range_value = config.GUN_RANGE_BASE * ships ** config.GUN_RANGE_EXPONENT
+    if isinstance(entity, Fleet):
+        range_value *= config.FLEET_GUN_RANGE_MULT
+    return range_value
 
 def _hit_probability(ship_count: float) -> float:
     if ship_count <= 0:
@@ -66,6 +70,7 @@ def fire_at_target(
     shooter_color: tuple[int, int, int],
     rng: random.Random,
     shooter_is_system: bool = False,
+    max_effective_ships: Optional[float] = None,
 ) -> list[CombatShot]:
     if shooter.owner_id == target.owner_id:
         return []
@@ -85,10 +90,14 @@ def fire_at_target(
         config.COMBAT_JITTER_MAX,
     )
 
+    effective_ships = shooter.ships
+    if max_effective_ships is not None:
+        effective_ships = min(effective_ships, max_effective_ships)
+
     actual_dps = dps_per_ship * (config.DEFENDER_BONUS if shooter_is_system else 1.0)
     hit_prob = _hit_probability(target.ships)
 
-    damage = shooter.ships * actual_dps * dt * jitter * hit_prob
+    damage = effective_ships * actual_dps * dt * jitter * hit_prob
 
     target.ships = max(0.0, target.ships - damage)
 
