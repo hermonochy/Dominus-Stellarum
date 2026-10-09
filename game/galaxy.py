@@ -260,7 +260,7 @@ class Galaxy:
 
     def _create_empires(self) -> None:
         for empire_id in range(config.EMPIRE_COUNT):
-            self.empires.append(Empire(id=empire_id, name=config.EMPIRE_NAMES[empire_id % len(config.EMPIRE_NAMES)], color=config.EMPIRE_COLORS[empire_id % len(config.EMPIRE_COLORS)], is_player=(empire_id == config.PLAYER_ID)))
+            self.empires.append(Empire(id=empire_id, name=config.EMPIRES[empire_id % len(config.EMPIRES)][0], color=config.EMPIRES[empire_id % len(config.EMPIRES)][1], is_player=(empire_id == config.PLAYER_ID)))
 
     def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
         rel = system.pos - center

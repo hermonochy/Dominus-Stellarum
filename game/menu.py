@@ -38,7 +38,7 @@ class _DifficultySetting:
 class MainMenu:
     def __init__(self):
         self.settings = [
-            _RangeSetting("Star systems", "STAR_COUNT", 20, 400, 10),
+            _RangeSetting("Star systems", "STAR_COUNT", 20, 1000, 10),
             _RangeSetting("Empires", "EMPIRE_COUNT", 2, 10, 1),
             _RangeSetting("Starting ships", "STARTING_SHIPS", 10, 200, 5),
             _RangeSetting("Fleet speed", "FLEET_SPEED", 5, 40, 1),

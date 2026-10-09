@@ -10,7 +10,7 @@ CAMERA_ZOOM_SENSITIVITY = 0.15
 CAMERA_PAN_SENSITIVITY = 0.5
 
 BOTTOM_BAR_MIN_HEIGHT = 96
-BAR_DRAG_TOLERANCE = 64
+BAR_DRAG_TOLERANCE = 25
 
 FONT_PATH = None
 
@@ -155,12 +155,12 @@ DEFAULT_SPEED_INDEX = SIM_SPEEDS.index(1.0)
 
 DIFFICULTY_PRESETS = {
     "Easy": {
-        "AI_THINK_INTERVAL": 1.6,
+        "AI_THINK_INTERVAL": 2.0,
         "AI_BOLDNESS_FACTOR": 0.05,
         "AI_MIN_ATTACK_RATIO": 1.8,
         "AI_BLITZ_POWER_RATIO": 2.4,
-        "AI_COOLDOWN": 14.0,
-        "AI_MAX_EXPANSIONS_PER_TICK": 2,
+        "AI_COOLDOWN": 15.0,
+        "AI_MAX_EXPANSIONS_PER_TICK": 1,
         "AI_REAR_GUARD_MAX": 15,
         "AI_FRONT_LINE_RESERVE": 20,
         "AI_BREAKTHROUGH_CONCENTRATION": 0.15,
@@ -171,18 +171,18 @@ DIFFICULTY_PRESETS = {
         "AI_MIN_ATTACK_RATIO": 1.35,
         "AI_BLITZ_POWER_RATIO": 1.8,
         "AI_COOLDOWN": 10.0,
-        "AI_MAX_EXPANSIONS_PER_TICK": 3,
+        "AI_MAX_EXPANSIONS_PER_TICK": 2,
         "AI_REAR_GUARD_MAX": 10,
         "AI_FRONT_LINE_RESERVE": 15,
         "AI_BREAKTHROUGH_CONCENTRATION": 0.25,
     },
     "Hard": {
-        "AI_THINK_INTERVAL": 0.7,
+        "AI_THINK_INTERVAL": 0.75,
         "AI_BOLDNESS_FACTOR": 0.18,
         "AI_MIN_ATTACK_RATIO": 1.2,
         "AI_BLITZ_POWER_RATIO": 1.55,
         "AI_COOLDOWN": 7.0,
-        "AI_MAX_EXPANSIONS_PER_TICK": 4,
+        "AI_MAX_EXPANSIONS_PER_TICK": 3,
         "AI_REAR_GUARD_MAX": 8,
         "AI_FRONT_LINE_RESERVE": 12,
         "AI_BREAKTHROUGH_CONCENTRATION": 0.35,
@@ -202,28 +202,15 @@ DIFFICULTY_PRESETS = {
 
 DEFAULT_DIFFICULTY_INDEX = 1
 
-EMPIRE_COLORS = [
-    (70, 170, 255),
-    (240, 80, 80),
-    (90, 215, 125),
-    (245, 185, 65),
-    (185, 105, 245),
-    (240, 110, 200),
-    (80, 220, 220),
-    (245, 135, 70),
-    (255, 255, 255),
-    (0, 0, 0),
-]
-
-EMPIRE_NAMES = [
-    "Terran Empire",
-    "Crimson Dominion",
-    "Emerald Empire",
-    "Solar Ascendancy",
-    "Violet Directorate",
-    "Rose Republic",
-    "Cyan League",
-    "Ember Coalition",
-    "Sons of Purity",
-    "Hand of the Void",
+EMPIRES = [
+    ["Terran Empire", (70, 170, 255)],
+    ["Crimson Dominion", (240, 80, 80)],
+    ["Emerald Empire", (90, 215, 125)],
+    ["Solar Ascendancy", (245, 185, 65)],
+    ["Violet Directorate", (185, 105, 245)],
+    ["Rose Republic", (240, 110, 200)],
+    ["Cyan League", (80, 220, 220)],
+    ["Ember Coalition", (245, 135, 70)],
+    ["Sons of Purity", (255, 255, 255)],
+    ["Hand of the Void", (0, 0, 0)],
 ]
