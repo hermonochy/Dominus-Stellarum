@@ -199,8 +199,8 @@ class Renderer:
                 direction = galaxy.systems[fleet.target_id].pos - position
 
             fleet_size = max(1, int(fleet.ships))
-            base_size = 3 + fleet_size * 0.15
-            shape_size = min(base_size * zoom, 18)
+            base_size = 1.4 * (fleet_size ** 0.35)
+            shape_size = min(base_size * zoom, 36)
 
             if direction.length_squared() > 0:
                 direction = direction.normalize()
@@ -209,17 +209,21 @@ class Renderer:
                 head_len = shape_size * 1.2
                 tail_len = shape_size * 0.6
                 half_width = shape_size * 0.4
+                notch_depth = shape_size * 0.5
 
                 tip_x = position.x + direction.x * head_len
                 tip_y = position.y + direction.y * head_len
-                left_x = position.x - direction.x * tail_len + perp.x * half_width
-                left_y = position.y - direction.y * tail_len + perp.y * half_width
-                right_x = position.x - direction.x * tail_len - perp.x * half_width
-                right_y = position.y - direction.y * tail_len - perp.y * half_width
+                left_x = position.x - direction.x * tail_len - perp.x * half_width
+                left_y = position.y - direction.y * tail_len - perp.y * half_width
+                notch_x = position.x - direction.x * (tail_len - notch_depth)
+                notch_y = position.y - direction.y * (tail_len - notch_depth)
+                right_x = position.x - direction.x * tail_len + perp.x * half_width
+                right_y = position.y - direction.y * tail_len + perp.y * half_width
 
                 points = [
                     (int(tip_x * zoom + offset_x), int(tip_y * zoom + offset_y)),
                     (int(left_x * zoom + offset_x), int(left_y * zoom + offset_y)),
+                    (int(notch_x * zoom + offset_x), int(notch_y * zoom + offset_y)),
                     (int(right_x * zoom + offset_x), int(right_y * zoom + offset_y)),
                 ]
 
