@@ -6,6 +6,7 @@ from . import ui
 from .combat import gun_range
 from .galaxy import Galaxy
 from .player import PlayerController
+from .popup import EmpirePopup
 
 class Renderer:
     def __init__(self, screen, camera):
@@ -25,6 +26,9 @@ class Renderer:
         self._empire_title_font = None
         self._selection_font_key = None
         self._selection_body_font = None
+        self._empire_row_rects: list[tuple[pygame.Rect, object]] = []
+        self._empire_row_hit_width = 540
+        self.popup = EmpirePopup()
 
     def _recache_fonts(self):
         w = self.screen.get_width()
@@ -69,6 +73,13 @@ class Renderer:
         self._draw_bottom_bar(galaxy, player)
         self._draw_camera_info(camera)
         self._draw_game_state(galaxy)
+        self.popup.draw(self.screen)
+
+    def empire_at(self, pos):
+        for rect, empire in self._empire_row_rects:
+            if rect.collidepoint(pos):
+                return empire
+        return None
 
     def _fit_font(self, target_height: int, label: str) -> pygame.font.Font:
         size = max(9, target_height)
@@ -380,7 +391,7 @@ class Renderer:
     def _draw_top_bar(self, galaxy, player, paused, speed):
         sw = self.screen.get_width()
         pygame.draw.rect(self.screen, config.PANEL, (0, 0, sw, config.TOP_BAR_HEIGHT))
-        state = "PAUSED" if paused else "RUNNING"
+        state = "PAUSED" if paused or self.popup.visible else "RUNNING"
         title = self.font.render("DOMINUS STELLARUM", True, config.TEXT)
         self.screen.blit(title, (18, 12))
         status = self.small_font.render(f"{state}   Speed {speed:g}x   {self._fleet_order_label(player)}", True, config.MUTED_TEXT)
@@ -473,6 +484,9 @@ class Renderer:
         self.screen.blit(heading, heading.get_rect(right=right_edge, top=cursor_y))
         cursor_y += row_height
 
+        self._empire_row_rects = []
+        hit_width = min(self._empire_row_hit_width, sw - 36)
+
         for rank, empire in enumerate(ranked, start=1):
             systems = galaxy.empire_system_count(empire.id)
             ships = int(galaxy.empire_ship_count(empire.id))
@@ -482,6 +496,8 @@ class Renderer:
             text = f"{rank}. {empire.name} [{marker}]  {systems} sys  {ships} ships{dead}"
             surface = row_font.render(text, True, color)
             self.screen.blit(surface, surface.get_rect(right=right_edge, top=cursor_y))
+            row_rect = pygame.Rect(right_edge - hit_width, cursor_y, hit_width, row_height)
+            self._empire_row_rects.append((row_rect, empire))
             cursor_y += row_height
 
     def _draw_camera_info(self, camera):

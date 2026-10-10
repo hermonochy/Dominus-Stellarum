@@ -1,6 +1,7 @@
 import pygame
 
 from . import config
+from . import ui
 from .ai import AIController
 from .galaxy import Galaxy
 from .menu import MainMenu
@@ -40,8 +41,10 @@ class GameApp:
         }
 
         self.renderer = Renderer(self.screen, self.camera)
+        self.renderer.popup.on_close = self._on_popup_closed
         self.running = True
         self.paused = False
+        self._paused_before_popup = False
         self.speed_index = config.DEFAULT_SPEED_INDEX
 
         self.panning = False
@@ -114,19 +117,41 @@ class GameApp:
     def _open_menu(self):
         self.in_menu = True
         self.paused = False
+        self.renderer.popup.close()
         self.menu.reset()
 
     def _game_running(self):
         if self.paused:
             return False
+        if self.renderer.popup.visible:
+            return False
         if self.galaxy.winner() is not None:
             return False
         return True
+
+    def _open_empire_popup(self, empire):
+        self._paused_before_popup = self.paused
+        self.paused = True
+        self.renderer.popup.open(empire, self.galaxy)
+
+    def _on_popup_closed(self):
+        self.paused = self._paused_before_popup
+
+    def _empire_row_click(self, pos):
+        if pos[1] < self.screen.get_height() - int(ui.bottom_bar_height):
+            return
+        empire = self.renderer.empire_at(pos)
+        if empire is not None:
+            self._open_empire_popup(empire)
 
     def _handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+                continue
+
+            if self.renderer.popup.visible:
+                self.renderer.popup.handle_event(event)
                 continue
 
             if event.type == pygame.VIDEORESIZE and not self.fullscreen:
@@ -140,7 +165,9 @@ class GameApp:
                     continue
 
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == pygame.BUTTON_MIDDLE:
+                if event.button == 1:
+                    self._empire_row_click(event.pos)
+                elif event.button == pygame.BUTTON_MIDDLE:
                     self.panning = True
                     self.pan_start_screen = pygame.mouse.get_pos()
                     self.pan_start_offset = (
@@ -274,6 +301,7 @@ class GameApp:
         self.speed_index = max(0, self.speed_index - 1)
 
     def _new_game(self):
+        self.renderer.popup.close()
         self.galaxy = Galaxy()
         if self.player is None:
             self.player = PlayerController(self.galaxy)

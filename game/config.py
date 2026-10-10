@@ -12,6 +12,9 @@ CAMERA_PAN_SENSITIVITY = 0.5
 BOTTOM_BAR_MIN_HEIGHT = 96
 BAR_DRAG_TOLERANCE = 25
 
+POPUP_WIDTH_RATIO = 0.62
+POPUP_HEIGHT_RATIO = 0.70
+
 FONT_PATH = None
 
 TOP_BAR_HEIGHT = 72
@@ -83,8 +86,6 @@ NEUTRAL_SHIPS_MAX = 0
 PRODUCTION_MIN = 0.45
 PRODUCTION_MAX = 1.25
 
-# Ship production is a quadratic: AX^2 + BX + C
-
 PRODUCTION_A = -2.5
 PRODUCTION_B = 1.75
 PRODUCTION_C = 0.75
@@ -107,7 +108,6 @@ ATTACKER_DAMAGE_PER_SHIP = 0.5
 DEFENDER_DAMAGE_PER_SHIP = 0.75
 ATTACKER_SHOTS_PER_SECOND = 5.0
 DEFENDER_SHOTS_PER_SECOND = 8.0
-
 
 SYSTEM_VS_SYSTEM_PER_SHIP = 0.06
 FLEET_VS_FLEET_PER_SHIP = 0.12
@@ -206,11 +206,24 @@ EMPIRES = [
     ["Terran Empire", (70, 170, 255)],
     ["Crimson Dominion", (240, 80, 80)],
     ["Emerald Empire", (90, 215, 125)],
+    ["Hand of the Void", (0, 0, 0)],
     ["Solar Ascendancy", (245, 185, 65)],
     ["Violet Directorate", (185, 105, 245)],
     ["Rose Republic", (240, 110, 200)],
     ["Cyan League", (80, 220, 220)],
     ["Ember Coalition", (245, 135, 70)],
     ["Sons of Purity", (255, 255, 255)],
-    ["Hand of the Void", (0, 0, 0)],
 ]
+
+EMPIRE_LORE = {
+    "Terran Empire": "Heirs of a Concord frontier depot, the Terrans descend from the clerks and archivists who fled the burning core carrying the last copy of the Concord Charter. Pragmatic and adaptable, they fight to unify a galaxy they alone still remember how to govern.",
+    "Crimson Dominion": "Descended from the Concord's soldier-caste, marooned on rimward martial citadels when the fleets withdrew. Centuries of uninterrupted frontier war have made the Dominion the galaxy's most fearsome close-quarters fighters. They hold hesitation to be the one unforgivable sin.",
+    "Emerald Empire": "Plant-humanoid symbiotes seeded from a forgotten quarantine world and botanical archive. The Emerald Empire spreads slowly, in tendrils, taking root in worlds no one else wants. They strike rarely — but a world they hold is a world grown over, and they are immovable once rooted.",
+    "Hand of the Void": "Something fled outward past the rim when the starburners fell, and something came back. The Hand moves among the far fringe's oldest wrecks like librarians among shelves, and may be the only power alive that knows who fired the starburners. They do not expand. They do not explain. When they move, they move coreward.",
+    "Solar Ascendancy": "Silicon minds uploaded into crystalline lattices by the organics who built them. The Ignis watched their makers go to war over a symbol and concluded that biology itself was the flaw. They harbor no hatred for the other empires — they simply intend to administrate them out of existence.",
+    "Violet Directorate": "A distributed consciousness wearing millions of bodies. The Vex see the Regency Crisis as proof that many wills sharing one galaxy is a design error, and they fight on every front simultaneously as if they were one. They do not conquer the galaxy — they complete it, and consider it a gift.",
+    "Rose Republic": "The Concord's diplomatic corps, inheritor of its corpse — legally speaking. A fractious democracy surrounded by militarists, the Lumin have become the core's most formidable defensive power precisely because they cannot decide, on schedule, to do anything else. They still propose a restored Concord. With elections.",
+    "Cyan League": "Cartel-smugglers and freebooters who ran the blockades of the succession war, selling to all sides from berths no chart admitted existed. Centuries in the cracks of the core's fortresses made them its finest cartographers. They fight opportunistically, avoid fair fights, and hold that the galaxy needs open lanes, not emperors.",
+    "Ember Coalition": "Volcanic-world laborers written off by the Concord as an economic loss — and lucky for it, for while their masters burned, the forgotten inherited the neighborhood. The Coalition raises leaders only to overthrow them, and its soldiers fight gloriously by the battalion. You cannot decapitate what has no permanent head.",
+    "Sons of Purity": "Human purists who sealed themselves inside their fortress-district before the starburners fell, and emerged believing the fire had cleansed the galaxy for the faithful. The rimborn Terrans fled the burning with the law; the Sons hid from it in the light. Distant kin to the player — and their most devoted enemy. Fanatical, patient, never yielding consecrated ground.",
+}
