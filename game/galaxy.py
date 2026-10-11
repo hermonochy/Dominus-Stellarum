@@ -22,6 +22,7 @@ class Galaxy:
         self.next_fleet_id = 0
         self.gathering_points: set[int] = set()
         self.new_ship_accum: dict[int, float] = {}
+        self._accum_owner: dict[int, Optional[int]] = {}
         self.active_combat: dict[int, float] = {}
 
         self.grid_cell_size = config.COMBAT_RANGE * 2.0
@@ -41,6 +42,7 @@ class Galaxy:
         self.next_fleet_id = 0
         self.gathering_points.clear()
         self.new_ship_accum.clear()
+        self._accum_owner.clear()
         self.active_combat.clear()
         self.spatial_grid.clear()
         self.path_cache.clear()
@@ -264,7 +266,7 @@ class Galaxy:
         for empire_id, empire_index in enumerate(roster[:config.EMPIRE_COUNT]):
             name, color = config.EMPIRES[empire_index]
             self.empires.append(Empire(id=empire_id, name=name, color=color, is_player=(empire_id == config.PLAYER_ID)))
-            
+
     def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
         rel = system.pos - center
         radius = max(rel.length(), config.GALAXY_CORE_RADIUS + 21.0)
@@ -344,7 +346,6 @@ class Galaxy:
         if total_systems <= 0:
             return 1.0
         share = max(0.001, min(1.0, owned_count / total_systems))
-        # Ship production is a quadratic: AX^2 + BX + C
         efficiency = config.PRODUCTION_A*share**2 + config.PRODUCTION_B*share + config.PRODUCTION_C
         return efficiency
 
@@ -359,6 +360,9 @@ class Galaxy:
         for system in self.systems:
             if system.owner_id is None:
                 continue
+            if self._accum_owner.get(system.id) != system.owner_id:
+                self._accum_owner[system.id] = system.owner_id
+                self.new_ship_accum[system.id] = 0.0
             owned_count = owned_counts.get(system.owner_id, 1)
             efficiency = self._empire_production_efficiency(owned_count, total_systems)
 
@@ -378,7 +382,7 @@ class Galaxy:
 
     def _dispatch_accumulated(self, system: StarSystem) -> None:
         accumulated = self.new_ship_accum[system.id]
-        amount = int(accumulated)
+        amount = min(int(accumulated), int(system.ships))
         if amount < 1:
             return
         empire_id = system.owner_id
@@ -713,7 +717,8 @@ class Galaxy:
         if planets <= 0:
             return 0.0
         ships = self.empire_ship_count(empire_id)
-        return ships * planets
+        # needs to be ships+1 as otherwise an empire with 0 ships would be same strength as dead empires
+        return (ships+1) * planets
 
     def living_empires(self) -> list[Empire]:
         return [empire for empire in self.empires if empire.alive]
