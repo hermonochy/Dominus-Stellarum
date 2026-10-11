@@ -262,10 +262,14 @@ class Galaxy:
 
     def _create_empires(self) -> None:
         chosen = config.PLAYER_EMPIRE_INDEX % len(config.EMPIRES)
-        roster = [chosen] + [i for i in range(len(config.EMPIRES)) if i != chosen]
-        for empire_id, empire_index in enumerate(roster[:config.EMPIRE_COUNT]):
-            name, color = config.EMPIRES[empire_index]
-            self.empires.append(Empire(id=empire_id, name=name, color=color, is_player=(empire_id == config.PLAYER_ID)))
+        player_slot = min(chosen, config.EMPIRE_COUNT - 1)
+        for empire_id in range(config.EMPIRE_COUNT):
+            if empire_id == player_slot:
+                name, color = config.EMPIRES[chosen]
+            else:
+                name, color = config.EMPIRES[empire_id]
+            self.empires.append(Empire(id=empire_id, name=name, color=color, is_player=(empire_id == player_slot)))
+        config.PLAYER_ID = player_slot
 
     def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
         rel = system.pos - center
