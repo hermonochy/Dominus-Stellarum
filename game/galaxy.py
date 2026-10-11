@@ -259,9 +259,12 @@ class Galaxy:
         return first_orientation * second_orientation < 0 and third_orientation * fourth_orientation < 0
 
     def _create_empires(self) -> None:
-        for empire_id in range(config.EMPIRE_COUNT):
-            self.empires.append(Empire(id=empire_id, name=config.EMPIRES[empire_id % len(config.EMPIRES)][0], color=config.EMPIRES[empire_id % len(config.EMPIRES)][1], is_player=(empire_id == config.PLAYER_ID)))
-
+        chosen = config.PLAYER_EMPIRE_INDEX % len(config.EMPIRES)
+        roster = [chosen] + [i for i in range(len(config.EMPIRES)) if i != chosen]
+        for empire_id, empire_index in enumerate(roster[:config.EMPIRE_COUNT]):
+            name, color = config.EMPIRES[empire_index]
+            self.empires.append(Empire(id=empire_id, name=name, color=color, is_player=(empire_id == config.PLAYER_ID)))
+            
     def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
         rel = system.pos - center
         radius = max(rel.length(), config.GALAXY_CORE_RADIUS + 21.0)

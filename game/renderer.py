@@ -446,7 +446,7 @@ class Renderer:
     def _draw_selection_panel(self, galaxy, player, y, pad_top, available):
         selected_id = player.selected_system_id
         if selected_id is None:
-            lines = ["No system selected", "Left-click one of your blue systems.", "Right-click a reachable system to send a fleet.", "Middle-click any system to toggle a gathering point."]
+            lines = ["No system selected", "Left-click one of your systems.", "Right-click a reachable system to send a fleet.", "Middle-click any system to toggle a gathering point."]
         else:
             system = galaxy.systems[selected_id]
             reachable = len(galaxy.reachable_system_ids(selected_id))

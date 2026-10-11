@@ -35,6 +35,23 @@ class _DifficultySetting:
         for key, value in config.DIFFICULTY_PRESETS[self.names[self.index]].items():
             setattr(config, key, value)
 
+class _EmpireSetting:
+    label = "Your empire"
+
+    def __init__(self):
+        self.index = config.DEFAULT_PLAYER_EMPIRE_INDEX
+
+    def display(self) -> str:
+        return config.EMPIRES[self.index][0]
+
+    @property
+    def color(self) -> tuple[int, int, int]:
+        return config.EMPIRES[self.index][1]
+
+    def adjust(self, direction: int) -> None:
+        self.index = (self.index + direction) % len(config.EMPIRES)
+        config.PLAYER_EMPIRE_INDEX = self.index
+
 class MainMenu:
     def __init__(self):
         self.settings = [
@@ -42,6 +59,7 @@ class MainMenu:
             _RangeSetting("Empires", "EMPIRE_COUNT", 2, 10, 1),
             _RangeSetting("Starting ships", "STARTING_SHIPS", 10, 200, 5),
             _RangeSetting("Fleet speed", "FLEET_SPEED", 5, 40, 1),
+            _EmpireSetting(),
             _DifficultySetting(),
         ]
         self.selected = 0
@@ -124,7 +142,13 @@ class MainMenu:
             screen.blit(label_surface, label_surface.get_rect(midleft=(rect.x + 16, rect.centery)))
 
             value_surface = label_font.render(setting.display(), True, config.SELECTION_COLOR if active else config.TEXT)
-            screen.blit(value_surface, value_surface.get_rect(midright=(rect.right - 120, rect.centery)))
+            value_rect = value_surface.get_rect(midright=(rect.right - 120, rect.centery))
+            screen.blit(value_surface, value_rect)
+
+            if hasattr(setting, "color"):
+                swatch_rect = pygame.Rect(value_rect.left - 34, rect.centery - 9, 20, 20)
+                pygame.draw.rect(screen, setting.color, swatch_rect, border_radius=4)
+                pygame.draw.rect(screen, config.LANE_HIGHLIGHT, swatch_rect, 2, border_radius=4)
 
             for direction, offset in ((-1, 100), (1, 56)):
                 arrow_char = "<" if direction < 0 else ">"
