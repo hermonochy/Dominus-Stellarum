@@ -68,13 +68,13 @@ class Galaxy:
         arm_tags: list[Optional[int]] = []
 
         prefixes = ["Al", "Ar", "Bel", "Ca", "Cor", "Del", "Er", "Fal", "Gal", "Hel", "Io", "Jan", "Kel", "Lor", "Mor", "Nor", "Or", "Pra", "Qua", "Ren", "Sol", "Tal", "Ur", "Vel", "Wex", "Xan", "Yar", "Zen"]
-        suffixes = ["a", "ar", "ea", "en", "eron", "ia", "ion", "is", "on", "or", "os", "um", "us"]
+        suffixes = ["a", "ar", "ath", "ea", "en", "eron", "ia", "ion", "is", "o", "on", "or", "os", "um", "us"]
 
         def too_close(pos: pygame.Vector2, min_dist: float) -> bool:
             return any(pos.distance_to(other) < min_dist for other in positions)
 
         def make_name() -> str:
-            for _ in range(400):
+            for _ in range((len(prefixes)*len(suffixes))):
                 name = self.rng.choice(prefixes) + self.rng.choice(suffixes)
                 if name not in used_names:
                     used_names.add(name)
