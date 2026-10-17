@@ -374,7 +374,7 @@ class Galaxy:
             if system.id in self.active_combat:
                 active_penalty = max(0.3, 1.0 - self.active_combat[system.id] * 0.1)
 
-            gain = system.production * dt / efficiency * active_penalty
+            gain = system.production * dt * efficiency * active_penalty
             system.ships += gain
 
             self.new_ship_accum[system.id] = self.new_ship_accum.get(system.id, 0.0) + gain
