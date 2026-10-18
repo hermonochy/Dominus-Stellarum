@@ -1,3 +1,4 @@
+# player.py
 import pygame
 
 from . import config
@@ -80,11 +81,17 @@ class PlayerController:
 
         self._validate_selection()
 
+    def autopilot_active(self) -> bool:
+        return self.galaxy.autopilot
+
     def handle_event(
         self,
         event: pygame.event.Event,
         camera: dict,
     ) -> None:
+        if self.galaxy.autopilot:
+            return
+
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 if self._in_drag_zone(event.pos):
@@ -246,6 +253,8 @@ class PlayerController:
     def valid_target_ids(self) -> set[int]:
         if self.selected_system_id is None:
             return set()
+        if self.galaxy.autopilot:
+            return set()
 
         return self.galaxy.reachable_system_ids(
             self.selected_system_id
@@ -256,6 +265,9 @@ class PlayerController:
         camera: dict,
         screen_pos: tuple[int, int],
     ) -> None:
+        if self.galaxy.autopilot:
+            return
+
         if self._over_bottom_bar(screen_pos):
             return
 

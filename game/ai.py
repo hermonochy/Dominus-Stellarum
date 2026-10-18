@@ -44,7 +44,9 @@ class AIController:
         self.think_timer -= config.AI_THINK_INTERVAL
 
         for empire in self.galaxy.empires:
-            if empire.is_player or not empire.alive:
+            if not empire.alive:
+                continue
+            if empire.is_player and not self.galaxy.autopilot:
                 continue
             self._think_for_empire(empire.id)
 
@@ -103,14 +105,14 @@ class AIController:
     def _try_initiate_massing_campaign(self, empire_id: int, front_lines: set[int]) -> bool:
         if self.rng.random() >= config.AI_MASSING_CHANCE:
             return False
-        
+
         total_ships = self.galaxy.empire_ship_count(empire_id)
         front_reserves = sum(
             self.galaxy.systems[fid].ships
             for fid in front_lines
             if self.galaxy.systems[fid].owner_id == empire_id
         )
-        
+
         surplus = total_ships - front_reserves - config.AI_MASSING_MIN_SURPLUS
         if surplus < config.AI_MASSING_MIN_SURPLUS:
             return False
@@ -132,7 +134,6 @@ class AIController:
         return True
 
     def _count_adjacent_enemies(self, empire_id: int) -> int:
-        count = 0
         seen = set()
         for system in self.galaxy.systems:
             if system.owner_id != empire_id:
@@ -153,32 +154,28 @@ class AIController:
 
         best = None
         best_score = float('inf')
-        
+
         for system in rear_systems:
             neighbors = [self.galaxy.systems[nid] for nid in self.galaxy.neighbors[system.id]]
             friendly_neighbors = [n for n in neighbors if n.owner_id == empire_id]
-            
+
             if len(neighbors) - len(friendly_neighbors) > 1:
                 continue
-            
-            to_front = sys_front_distance = float('inf')
+
+            sys_front_distance = float('inf')
             for fid in front_lines:
                 path = self.galaxy.shortest_path(system.id, fid)
                 if path:
                     dist = len(path) - 1
                     if dist < sys_front_distance:
                         sys_front_distance = dist
-            to_front = sys_front_distance
-            
-            defense_level = system.ships
-            production = system.production
-            
-            score = to_front * 10 + (100 - defense_level) + (50 - production * 100)
-            
+
+            score = sys_front_distance * 10 + (100 - system.ships) + (50 - system.production * 100)
+
             if score < best_score:
                 best_score = score
                 best = system.id
-        
+
         return best
 
     def _find_primary_massing_target(self, empire_id: int) -> int | None:
@@ -230,13 +227,9 @@ class AIController:
             self._handle_blitz(empire_id, owned)
         elif self.breakthrough_focus.get(empire_id) is not None:
             self._handle_breakthrough_push(empire_id, owned, front_lines)
-        else:
-            if self._try_initiate_massing_campaign(empire_id, front_lines):
-                self._handle_massing_campaign(empire_id, owned, front_lines)
-            else:
-                expansions_check = self._handle_expansion(empire_id, owned)
-                if expansions_check == 0 or self.rng.random() > 0.6:
-                    self._handle_skirmish(empire_id, owned, front_lines)
+        elif expansions == 0 or self.rng.random() > 0.6:
+            if not self._try_initiate_massing_campaign(empire_id, front_lines):
+                self._handle_skirmish(empire_id, owned, front_lines)
 
         self._handle_multi_front_defense(empire_id, owned, front_lines)
 
@@ -248,14 +241,14 @@ class AIController:
     ) -> None:
         stage_point_id = self.massing_stage_point.get(empire_id)
         target_empire_id = self.massing_focus.get(empire_id)
-        
+
         if stage_point_id is None or target_empire_id is None:
             self.massing_focus[empire_id] = None
             self.massing_stage_point[empire_id] = None
             return
 
         stage_point = self.galaxy.systems[stage_point_id]
-        
+
         for system in owned:
             if system.id == stage_point_id:
                 continue
@@ -271,10 +264,10 @@ class AIController:
 
         stage_defense = stage_point.ships
         target_strength = self.galaxy.empire_ship_count(target_empire_id)
-        
+
         if stage_defense >= target_strength * config.AI_MASSING_TARGET_RATIO:
             attack_options: list[Tuple[float, StarSystem, StarSystem]] = []
-            
+
             for system in owned:
                 if system.id == stage_point_id:
                     continue
@@ -287,7 +280,7 @@ class AIController:
                     advantage = self._calculate_attack_advantage(system, node)
                     if advantage > 0:
                         attack_options.append((advantage, system, node))
-            
+
             if attack_options:
                 attack_options.sort(key=lambda x: x[0], reverse=True)
                 for _, source, target in attack_options[:2]:
@@ -296,18 +289,6 @@ class AIController:
                         send_pct = min(config.AI_MASSING_LAUNCH_PERCENT, max(50, int(available / max(1.0, source.ships) * 100)))
                         if self.galaxy.launch_fleet(source.id, target.id, send_pct):
                             self.attack_cooldowns[(source.id, target.id)] = config.AI_COOLDOWN * 0.5
-            
-            if stage_defense > target_strength * 0.5:
-                for system in owned:
-                    if system.id == stage_point_id:
-                        continue
-                    if system.id in front_lines:
-                        continue
-                    excess = max(0, system.ships - config.AI_REAR_GUARD_MAX)
-                    if excess > 10:
-                        route = self.galaxy.shortest_path(system.id, stage_point_id)
-                        if route:
-                            self.galaxy._launch_exact(system.id, stage_point_id, min(excess // 2, 20), route)
         else:
             if stage_point.ships < config.AI_FRONT_LINE_RESERVE * 3:
                 for system in owned:

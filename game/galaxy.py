@@ -1,3 +1,4 @@
+# galaxy.py
 from __future__ import annotations
 
 import math
@@ -24,6 +25,7 @@ class Galaxy:
         self.new_ship_accum: dict[int, float] = {}
         self._accum_owner: dict[int, Optional[int]] = {}
         self.active_combat: dict[int, float] = {}
+        self.autopilot = False
 
         self.grid_cell_size = config.COMBAT_RANGE * 2.0
         self.spatial_grid: dict[tuple[int, int], list[int]] = {}
@@ -44,6 +46,7 @@ class Galaxy:
         self.new_ship_accum.clear()
         self._accum_owner.clear()
         self.active_combat.clear()
+        self.autopilot = False
         self.spatial_grid.clear()
         self.path_cache.clear()
         self._ship_count_cache = None
@@ -721,7 +724,6 @@ class Galaxy:
         if planets <= 0:
             return 0.0
         ships = self.empire_ship_count(empire_id)
-        # needs to be ships+1 as otherwise an empire with 0 ships would be same strength as dead empires
         return (ships+1) * planets
 
     def living_empires(self) -> list[Empire]:

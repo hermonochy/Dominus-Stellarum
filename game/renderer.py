@@ -1,3 +1,4 @@
+# renderer.py
 import math
 import pygame
 
@@ -391,10 +392,10 @@ class Renderer:
     def _draw_top_bar(self, galaxy, player, paused, speed):
         sw = self.screen.get_width()
         pygame.draw.rect(self.screen, config.PANEL, (0, 0, sw, config.TOP_BAR_HEIGHT))
-        state = "PAUSED" if paused or self.popup.visible else "RUNNING"
+        state = "AUTOPILOT" if galaxy.autopilot else ("PAUSED" if paused or self.popup.visible else "RUNNING")
         title = self.font.render("DOMINUS STELLARUM", True, config.TEXT)
         self.screen.blit(title, (18, 12))
-        status = self.small_font.render(f"{state}   Speed {speed:g}x   {self._fleet_order_label(player)}", True, config.MUTED_TEXT)
+        status = self.small_font.render(f"{state}   Speed {speed:g}x   {self._fleet_order_label(player)}", True, config.SELECTION_COLOR if galaxy.autopilot else config.MUTED_TEXT)
         self.screen.blit(status, (18, 39))
         player_systems = galaxy.empire_system_count(config.PLAYER_ID)
         player_ships = int(galaxy.empire_ship_count(config.PLAYER_ID))
@@ -445,7 +446,9 @@ class Renderer:
 
     def _draw_selection_panel(self, galaxy, player, y, pad_top, available):
         selected_id = player.selected_system_id
-        if selected_id is None:
+        if galaxy.autopilot:
+            lines = ["Autopilot engaged", "Your empire is controlled by the AI.", "Open your empire in the Galactic Powers list", "to regain control."]
+        elif selected_id is None:
             lines = ["No system selected", "Left-click one of your systems.", "Right-click a reachable system to send a fleet.", "Middle-click any system to toggle a gathering point."]
         else:
             system = galaxy.systems[selected_id]
@@ -493,7 +496,8 @@ class Renderer:
             color = empire.color if empire.alive else config.MUTED_TEXT
             marker = "YOU" if empire.is_player else "AI"
             dead = "" if empire.alive else " (dead)"
-            text = f"{rank}. {empire.name} [{marker}]  {systems} sys  {ships} ships{dead}"
+            autopilot_tag = " [AUTO]" if empire.is_player and galaxy.autopilot else ""
+            text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships{dead}"
             surface = row_font.render(text, True, color)
             self.screen.blit(surface, surface.get_rect(right=right_edge, top=cursor_y))
             row_rect = pygame.Rect(right_edge - hit_width, cursor_y, hit_width, row_height)
@@ -511,7 +515,7 @@ class Renderer:
             self._draw_end_screen("VICTORY", "You control the galaxy. Press R to start anew.")
         elif winner is not None:
             self._draw_end_screen("DEFEAT", f"The {winner.name} rules the galaxy. Press R to try again.")
-
+    
     def _draw_end_screen(self, title, subtitle):
         overlay = pygame.Surface(
             (self.screen.get_width(), self.screen.get_height()),

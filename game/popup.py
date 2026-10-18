@@ -1,3 +1,4 @@
+# popup.py
 import pygame
 
 from . import config
@@ -45,10 +46,18 @@ class EmpirePopup:
 
     def _build_buttons(self):
         self.buttons = []
+        if self.empire is None or self.galaxy is None:
+            return
+        if not self.empire.is_player:
+            return
+        autopilot_active = self.galaxy.autopilot
+        label = "Regain control" if autopilot_active else "Delegate to AI"
+        self.buttons = [PopupButton(label, "toggle_autopilot")]
 
     def _activate(self, button):
         if self.on_action is not None:
             self.on_action(button.action_id, self.empire)
+        self._build_buttons()
 
     def handle_event(self, event):
         if not self.visible:
@@ -154,6 +163,8 @@ class EmpirePopup:
         subtitle_parts = ["YOUR EMPIRE" if empire.is_player else "AI POWER"]
         if not empire.alive:
             subtitle_parts.append("ELIMINATED")
+        if empire.is_player and self.galaxy.autopilot:
+            subtitle_parts.append("AUTOPILOT")
         subtitle = self._get_text("  |  ".join(subtitle_parts), small_size, config.MUTED_TEXT)
         screen.blit(subtitle, subtitle.get_rect(center=(panel_rect.centerx, cursor_y + subtitle.get_height() // 2)))
         cursor_y += subtitle.get_height() + int(12 * scale)

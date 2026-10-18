@@ -1,3 +1,4 @@
+# app.py
 import pygame
 
 from . import config
@@ -42,6 +43,7 @@ class GameApp:
 
         self.renderer = Renderer(self.screen, self.camera)
         self.renderer.popup.on_close = self._on_popup_closed
+        self.renderer.popup.on_action = self._on_popup_action
         self.running = True
         self.paused = False
         self._paused_before_popup = False
@@ -136,6 +138,18 @@ class GameApp:
 
     def _on_popup_closed(self):
         self.paused = self._paused_before_popup
+
+    def _on_popup_action(self, action_id, empire):
+        if action_id != "toggle_autopilot":
+            return
+        if empire is None or not empire.is_player:
+            return
+        self.galaxy.autopilot = not self.galaxy.autopilot
+        if self.galaxy.autopilot:
+            self.player.selected_system_id = None
+            self.player._set_message("Your empire is now controlled by the AI.")
+        else:
+            self.player._set_message("You have regained control of your empire.")
 
     def _empire_row_click(self, pos):
         if pos[1] < self.screen.get_height() - int(ui.bottom_bar_height):
@@ -258,6 +272,9 @@ class GameApp:
         if key == pygame.K_RIGHT:
             self.camera['offset_x'] -= 50
             return True
+
+        if self.galaxy.autopilot:
+            return False
 
         if pygame.K_F1 <= key <= pygame.K_F10:
             self.player.use_percent = True
