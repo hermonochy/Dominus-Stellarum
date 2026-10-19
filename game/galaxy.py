@@ -1,4 +1,3 @@
-# galaxy.py
 from __future__ import annotations
 
 import math
@@ -86,7 +85,7 @@ class Galaxy:
             used_names.add(name)
             return name
 
-        core_count = max(25, int(config.STAR_COUNT * config.GALAXY_CORE_RATIO))
+        core_count = max(15, int(config.STAR_COUNT * config.GALAXY_CORE_RATIO))
         placed_core = 0
         attempts = 0
         while placed_core < core_count and attempts < core_count * 30:
@@ -106,21 +105,23 @@ class Galaxy:
 
         arm_budget = config.STAR_COUNT - len(positions) - int(config.STAR_COUNT * config.GALAXY_BRANCH_RATIO)
         arm_stars_per_arm = max(10, arm_budget // num_arms)
-        arm_start_radius = config.GALAXY_CORE_RADIUS + 20.0
+        arm_start_radius = config.GALAXY_CORE_RADIUS + 25.0
 
         for arm_idx in range(num_arms):
-            arm_base_angle = (math.tau / num_arms) * arm_idx
+            arm_base_angle = (math.tau / num_arms) * arm_idx + self.rng.uniform(-0.1, 0.1)
             for i in range(arm_stars_per_arm):
                 t = (i + self.rng.random()) / arm_stars_per_arm
                 r = arm_start_radius * (config.ARM_MAX_RADIUS / arm_start_radius) ** t
-                theta = arm_base_angle + t * math.pi * config.GALAXY_ARM_PITCH + self.rng.gauss(0.0, config.GALAXY_ARM_WIND * 0.5)
-                r += self.rng.gauss(0.0, config.MIN_STAR_DISTANCE * 0.35)
-                r = max(config.GALAXY_CORE_RADIUS + 5.0, r)
+                spiral_twist = t * math.pi * config.GALAXY_ARM_PITCH
+                angular_noise = self.rng.gauss(0.0, config.GALAXY_ARM_WIND * 0.35)
+                radial_jitter = self.rng.gauss(0.0, config.MIN_STAR_DISTANCE * 0.25)
+                theta = arm_base_angle + spiral_twist + angular_noise
+                r = max(config.GALAXY_CORE_RADIUS + 10.0, r + radial_jitter)
                 pos = center + pygame.Vector2(math.cos(theta) * r, math.sin(theta) * r)
-                if too_close(pos, config.MIN_STAR_DISTANCE * 0.7):
+                if too_close(pos, config.MIN_STAR_DISTANCE * 0.75):
                     continue
                 name = make_name()
-                production_multiplier = 1.0 - (r / config.ARM_MAX_RADIUS) * 0.4
+                production_multiplier = 1.0 - (r / config.ARM_MAX_RADIUS) * 0.35
                 production = self.rng.uniform(config.PRODUCTION_MIN * production_multiplier, config.PRODUCTION_MAX * production_multiplier)
                 positions.append(pos)
                 system_data.append((name, production))
@@ -128,17 +129,17 @@ class Galaxy:
 
         if len(positions) > core_count:
             branches_to_add = min(int(config.STAR_COUNT * config.GALAXY_BRANCH_RATIO), config.STAR_COUNT - len(positions))
-            for _ in range(branches_to_add * 3):
+            for _ in range(branches_to_add * 2):
                 if len(positions) >= config.STAR_COUNT:
                     break
                 branch_parent = self.rng.randrange(core_count, len(positions))
                 parent_pos = positions[branch_parent]
                 parent_relative = parent_pos - center
                 parent_theta = math.atan2(parent_relative.y, parent_relative.x)
-                branch_angle = parent_theta + self.rng.choice([-1, 1]) * self.rng.uniform(0.4, 0.8)
-                branch_radius = parent_relative.length() + self.rng.uniform(30, 50)
+                branch_angle = parent_theta + self.rng.choice([-1, 1]) * self.rng.uniform(0.5, 1.0)
+                branch_radius = parent_relative.length() + self.rng.uniform(35, 55)
                 candidate = center + pygame.Vector2(math.cos(branch_angle) * branch_radius, math.sin(branch_angle) * branch_radius)
-                if too_close(candidate, config.MIN_STAR_DISTANCE * 0.7):
+                if too_close(candidate, config.MIN_STAR_DISTANCE * 0.75):
                     continue
                 name = make_name()
                 production = self.rng.uniform(config.PRODUCTION_MIN, config.PRODUCTION_MAX)
