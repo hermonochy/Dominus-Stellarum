@@ -64,6 +64,8 @@ class Galaxy:
     def _create_systems(self) -> None:
         center = pygame.Vector2(config.GALAXY_CENTER_X, config.GALAXY_CENTER_Y)
         num_arms = config.GALAXY_ARM_COUNT
+        target_count = config.STAR_COUNT
+
         used_names: set[str] = set()
         positions: list[pygame.Vector2] = []
         system_data: list[tuple[str, float]] = []
@@ -72,11 +74,29 @@ class Galaxy:
         prefixes = ["Al", "Ar", "Bel", "Ca", "Cor", "Del", "Er", "Fal", "Gal", "Hel", "Io", "Jan", "Kel", "Lor", "Mor", "Nor", "Or", "Pra", "Qua", "Ren", "Sol", "Tal", "Ur", "Vel", "Wex", "Xan", "Yar", "Zen"]
         suffixes = ["a", "ar", "ath", "ea", "en", "eron", "ia", "ion", "is", "o", "on", "or", "os", "um", "us"]
 
+        cell_size = config.MIN_STAR_DISTANCE
+        spawn_grid: dict[tuple[int, int], list[pygame.Vector2]] = {}
+
+        def record_position(pos: pygame.Vector2) -> None:
+            key = (int(pos.x // cell_size), int(pos.y // cell_size))
+            bucket = spawn_grid.get(key)
+            if bucket is None:
+                spawn_grid[key] = [pos]
+            else:
+                bucket.append(pos)
+
         def too_close(pos: pygame.Vector2, min_dist: float) -> bool:
-            return any(pos.distance_to(other) < min_dist for other in positions)
+            col = int(pos.x // cell_size)
+            row = int(pos.y // cell_size)
+            for dc in (-1, 0, 1):
+                for dr in (-1, 0, 1):
+                    for other in spawn_grid.get((col + dc, row + dr), ()):
+                        if pos.distance_to(other) < min_dist:
+                            return True
+            return False
 
         def make_name() -> str:
-            for _ in range((len(prefixes)*len(suffixes))):
+            for _ in range((len(prefixes) * len(suffixes))):
                 name = self.rng.choice(prefixes) + self.rng.choice(suffixes)
                 if name not in used_names:
                     used_names.add(name)
@@ -85,67 +105,103 @@ class Galaxy:
             used_names.add(name)
             return name
 
-        core_count = max(15, int(config.STAR_COUNT * config.GALAXY_CORE_RATIO))
-        placed_core = 0
-        attempts = 0
-        while placed_core < core_count and attempts < core_count * 30:
-            attempts += 1
+        def add_star(pos: pygame.Vector2, production: float, arm_idx: Optional[int]) -> None:
+            positions.append(pos)
+            system_data.append((make_name(), production))
+            arm_tags.append(arm_idx)
+            record_position(pos)
+
+        def arm_spawn(base_angle: float) -> tuple[pygame.Vector2, float]:
+            arm_start_radius = config.GALAXY_CORE_RADIUS + 25.0
+            t = self.rng.random()
+            r = arm_start_radius * (config.ARM_MAX_RADIUS / arm_start_radius) ** t
+            theta = (
+                base_angle
+                + t * math.pi * config.GALAXY_ARM_PITCH
+                + self.rng.gauss(0.0, config.GALAXY_ARM_WIND * 0.35)
+            )
+            r += self.rng.gauss(0.0, config.MIN_STAR_DISTANCE * 0.25)
+            r = max(config.GALAXY_CORE_RADIUS + 10.0, r)
+            pos = center + pygame.Vector2(math.cos(theta) * r, math.sin(theta) * r)
+            production_multiplier = 1.0 - (r / config.ARM_MAX_RADIUS) * 0.35
+            production = self.rng.uniform(
+                config.PRODUCTION_MIN * production_multiplier,
+                config.PRODUCTION_MAX * production_multiplier,
+            )
+            return pos, production
+
+        def branch_spawn() -> tuple[pygame.Vector2, float, int]:
+            parent_index = self.rng.randrange(core_star_end, len(positions))
+            parent_rel = positions[parent_index] - center
+            parent_theta = math.atan2(parent_rel.y, parent_rel.x)
+            branch_angle = parent_theta + self.rng.choice([-1, 1]) * self.rng.uniform(0.5, 1.0)
+            branch_radius = parent_rel.length() + self.rng.uniform(35, 55)
+            pos = center + pygame.Vector2(
+                math.cos(branch_angle) * branch_radius,
+                math.sin(branch_angle) * branch_radius,
+            )
+            production = self.rng.uniform(config.PRODUCTION_MIN, config.PRODUCTION_MAX)
+            arm_idx = arm_tags[parent_index]
+            return pos, production, arm_idx if arm_idx is not None else 0
+
+        core_target = max(2, int(target_count * config.GALAXY_CORE_RATIO))
+        attempts = core_target * 40
+        while len(positions) < core_target and attempts > 0:
+            attempts -= 1
             r = config.GALAXY_CORE_RADIUS * math.sqrt(self.rng.random())
             theta = self.rng.random() * math.tau
             pos = center + pygame.Vector2(math.cos(theta) * r, math.sin(theta) * r)
-            if too_close(pos, config.MIN_STAR_DISTANCE * 0.6):
+            if too_close(pos, config.MIN_STAR_DISTANCE * 0.55):
                 continue
-            name = make_name()
             production = self.rng.uniform(config.PRODUCTION_MIN * 1.1, config.PRODUCTION_MAX * 1.1)
-            positions.append(pos)
-            system_data.append((name, production))
-            arm_tags.append(None)
-            placed_core += 1
-        core_count = placed_core
+            add_star(pos, production, None)
 
-        arm_budget = config.STAR_COUNT - len(positions) - int(config.STAR_COUNT * config.GALAXY_BRANCH_RATIO)
-        arm_stars_per_arm = max(10, arm_budget // num_arms)
-        arm_start_radius = config.GALAXY_CORE_RADIUS + 25.0
+        core_star_end = len(positions)
+
+        base_angles = [
+            (math.tau / num_arms) * arm_idx + self.rng.uniform(-0.1, 0.1)
+            for arm_idx in range(num_arms)
+        ]
+
+        arm_budget = max(0, target_count - len(positions))
+        base_quota = arm_budget // num_arms
+        remainder = arm_budget - base_quota * num_arms
 
         for arm_idx in range(num_arms):
-            arm_base_angle = (math.tau / num_arms) * arm_idx + self.rng.uniform(-0.1, 0.1)
-            for i in range(arm_stars_per_arm):
-                t = (i + self.rng.random()) / arm_stars_per_arm
-                r = arm_start_radius * (config.ARM_MAX_RADIUS / arm_start_radius) ** t
-                spiral_twist = t * math.pi * config.GALAXY_ARM_PITCH
-                angular_noise = self.rng.gauss(0.0, config.GALAXY_ARM_WIND * 0.35)
-                radial_jitter = self.rng.gauss(0.0, config.MIN_STAR_DISTANCE * 0.25)
-                theta = arm_base_angle + spiral_twist + angular_noise
-                r = max(config.GALAXY_CORE_RADIUS + 10.0, r + radial_jitter)
-                pos = center + pygame.Vector2(math.cos(theta) * r, math.sin(theta) * r)
+            quota = base_quota + (1 if arm_idx < remainder else 0)
+            attempts = quota * 5 + 50
+            while quota > 0 and attempts > 0:
+                attempts -= 1
+                pos, production = arm_spawn(base_angles[arm_idx])
                 if too_close(pos, config.MIN_STAR_DISTANCE * 0.75):
                     continue
-                name = make_name()
-                production_multiplier = 1.0 - (r / config.ARM_MAX_RADIUS) * 0.35
-                production = self.rng.uniform(config.PRODUCTION_MIN * production_multiplier, config.PRODUCTION_MAX * production_multiplier)
-                positions.append(pos)
-                system_data.append((name, production))
-                arm_tags.append(arm_idx)
+                add_star(pos, production, arm_idx)
+                quota -= 1
 
-        if len(positions) > core_count:
-            branches_to_add = min(int(config.STAR_COUNT * config.GALAXY_BRANCH_RATIO), config.STAR_COUNT - len(positions))
-            for _ in range(branches_to_add * 2):
-                if len(positions) >= config.STAR_COUNT:
-                    break
-                branch_parent = self.rng.randrange(core_count, len(positions))
-                parent_pos = positions[branch_parent]
-                parent_relative = parent_pos - center
-                parent_theta = math.atan2(parent_relative.y, parent_relative.x)
-                branch_angle = parent_theta + self.rng.choice([-1, 1]) * self.rng.uniform(0.5, 1.0)
-                branch_radius = parent_relative.length() + self.rng.uniform(35, 55)
-                candidate = center + pygame.Vector2(math.cos(branch_angle) * branch_radius, math.sin(branch_angle) * branch_radius)
-                if too_close(candidate, config.MIN_STAR_DISTANCE * 0.75):
-                    continue
-                name = make_name()
-                production = self.rng.uniform(config.PRODUCTION_MIN, config.PRODUCTION_MAX)
-                positions.append(candidate)
-                system_data.append((name, production))
-                arm_tags.append(arm_tags[branch_parent])
+        deficit = target_count - len(positions)
+        attempts = deficit * 30
+        relax = 0.75
+        miss_streak = 0
+
+        while len(positions) < target_count and attempts > 0:
+            attempts -= 1
+            if (
+                len(positions) > core_star_end
+                and self.rng.random() < config.GALAXY_BRANCH_RATIO
+            ):
+                pos, production, spawn_arm_idx = branch_spawn()
+            else:
+                spawn_arm_idx = self.rng.randrange(num_arms)
+                pos, production = arm_spawn(base_angles[spawn_arm_idx])
+
+            if too_close(pos, config.MIN_STAR_DISTANCE * relax):
+                miss_streak += 1
+                if miss_streak % 200 == 0:
+                    relax = max(0.15, relax - 0.05)
+                continue
+
+            miss_streak = 0
+            add_star(pos, production, spawn_arm_idx)
 
         self.system_arms = arm_tags
         for i, (pos, (name, prod)) in enumerate(zip(positions, system_data)):
