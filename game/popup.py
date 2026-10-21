@@ -1,4 +1,5 @@
 # popup.py
+# popup.py
 import pygame
 
 from . import config
@@ -181,9 +182,10 @@ class EmpirePopup:
         systems = self.galaxy.empire_system_count(empire.id)
         ships = int(self.galaxy.empire_ship_count(empire.id))
         strength = int(self.galaxy.empire_strength(empire.id))
+        missiles = empire.missiles_remaining
         stats_font = self._get_font(body_size)
         stats = stats_font.render(
-            f"Systems: {systems}    Ships: {ships}    Strength: {strength:,}",
+            f"Systems: {systems}    Ships: {ships}    Strength: {strength:,}    Missiles: {missiles}",
             True,
             config.TEXT,
         )

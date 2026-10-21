@@ -1,3 +1,4 @@
+# galaxy.py
 from __future__ import annotations
 
 import math
@@ -8,7 +9,7 @@ import pygame
 
 from . import config
 from .combat import fire_at_target, gun_range, resolve_fleet_arrival
-from .models import CombatShot, Empire, Fleet, StarSystem
+from .models import CombatShot, Empire, Explosion, Fleet, StarSystem
 
 class Galaxy:
     def __init__(self, seed: Optional[int] = None):
@@ -17,6 +18,7 @@ class Galaxy:
         self.empires: list[Empire] = []
         self.fleets: list[Fleet] = []
         self.combat_shots: list[CombatShot] = []
+        self.explosions: list[Explosion] = []
         self.edges: set[tuple[int, int]] = set()
         self.neighbors: dict[int, set[int]] = {}
         self.next_fleet_id = 0
@@ -25,6 +27,8 @@ class Galaxy:
         self._accum_owner: dict[int, Optional[int]] = {}
         self.active_combat: dict[int, float] = {}
         self.autopilot = False
+        self.nuclear_cooldown = 0.0
+        self.pending_messages: list[str] = []
 
         self.grid_cell_size = config.COMBAT_RANGE * 2.0
         self.spatial_grid: dict[tuple[int, int], list[int]] = {}
@@ -38,6 +42,7 @@ class Galaxy:
         self.empires.clear()
         self.fleets.clear()
         self.combat_shots.clear()
+        self.explosions.clear()
         self.edges.clear()
         self.neighbors.clear()
         self.next_fleet_id = 0
@@ -46,6 +51,8 @@ class Galaxy:
         self._accum_owner.clear()
         self.active_combat.clear()
         self.autopilot = False
+        self.nuclear_cooldown = 0.0
+        self.pending_messages.clear()
         self.spatial_grid.clear()
         self.path_cache.clear()
         self._ship_count_cache = None
@@ -56,6 +63,11 @@ class Galaxy:
 
     def update(self, dt: float) -> None:
         self._ship_count_cache = None
+        if self.nuclear_cooldown > 0.0:
+            self.nuclear_cooldown = max(0.0, self.nuclear_cooldown - dt)
+        for explosion in self.explosions:
+            explosion.age += dt
+        self.explosions = [e for e in self.explosions if e.age < e.max_age]
         self._produce_ships(dt)
         self._update_fleets(dt)
         self._update_standoff_combat(dt)
@@ -328,7 +340,15 @@ class Galaxy:
                 name, color = config.EMPIRES[chosen]
             else:
                 name, color = config.EMPIRES[empire_id]
-            self.empires.append(Empire(id=empire_id, name=name, color=color, is_player=(empire_id == player_slot)))
+            self.empires.append(
+                Empire(
+                    id=empire_id,
+                    name=name,
+                    color=color,
+                    is_player=(empire_id == player_slot),
+                    missiles_remaining=config.NUCLEAR_MISSILES_PER_EMPIRE,
+                )
+            )
         config.PLAYER_ID = player_slot
 
     def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
@@ -485,6 +505,72 @@ class Galaxy:
         self.next_fleet_id += 1
         return True
 
+    def _launch_nuclear(self, source_id: int, target_id: int) -> bool:
+        source = self.systems[source_id]
+        if source.owner_id is None:
+            return False
+        empire = self.empires[source.owner_id]
+        if empire.missiles_remaining <= 0:
+            return False
+        if self.nuclear_cooldown > 0.0:
+            return False
+        route = self.shortest_path(source_id, target_id)
+        if route is None or len(route) < 2:
+            return False
+        target = self.systems[target_id]
+        if target.owner_id == config.PLAYER_ID:
+            self.pending_messages.append(f"Nuclear missile inbound to {target.name}!")
+        empire.missiles_remaining -= 1
+        self.nuclear_cooldown = config.NUCLEAR_GLOBAL_COOLDOWN
+        self.fleets.append(
+            Fleet(
+                id=self.next_fleet_id,
+                owner_id=source.owner_id,
+                source_id=source_id,
+                target_id=target_id,
+                ships=1.0,
+                route=route,
+                route_index=1,
+                segment_progress=0.0,
+                is_missile=True,
+            )
+        )
+        self.next_fleet_id += 1
+        return True
+
+    def _detonate(self, system: StarSystem) -> None:
+        fleet_loss = system.ships * config.NUCLEAR_KILL_FRACTION
+        system.ships = max(0.0, system.ships - fleet_loss)
+        if system.ships < config.COMBAT_MIN_SHIPS:
+            system.ships = 0.0
+        if system.owner_id == config.PLAYER_ID and fleet_loss >= 1.0:
+            self.pending_messages.append(
+                f"Nuclear detonation at {system.name}! Your fleet was devastated."
+            )
+
+        for other in self.systems:
+            if other.id == system.id:
+                continue
+            distance = other.pos.distance_to(system.pos)
+            if distance > config.NUCLEAR_EFFECT_RADIUS:
+                continue
+            falloff = 1.0 - distance / config.NUCLEAR_EFFECT_RADIUS
+            kill = other.ships * config.NUCLEAR_KILL_FRACTION * config.NUCLEAR_SPLASH_FRACTION * falloff
+            if kill <= 0.0:
+                continue
+            other.ships = max(0.0, other.ships - kill)
+            if other.owner_id == config.PLAYER_ID and kill >= 1.0:
+                self.pending_messages.append(f"Blast wave struck {other.name}.")
+
+        self.explosions.append(
+            Explosion(
+                pos=system.pos.copy(),
+                age=0.0,
+                max_age=config.EXPLOSION_DURATION,
+                peak_radius=config.NUCLEAR_EFFECT_RADIUS,
+            )
+        )
+
     def toggle_gathering_point(self, system_id: int) -> bool:
         if system_id not in self.neighbors:
             return False
@@ -600,6 +686,7 @@ class Galaxy:
 
     def _update_fleets(self, dt: float) -> None:
         arrived: list[Fleet] = []
+        detonations: list[Fleet] = []
         surviving_fleets: list[Fleet] = []
 
         for shot in self.combat_shots:
@@ -607,12 +694,15 @@ class Galaxy:
         self.combat_shots = [shot for shot in self.combat_shots if shot.lifetime > 0.0]
 
         for fleet in self.fleets:
+            speed = config.FLEET_SPEED
+            if fleet.is_missile:
+                speed *= config.NUCLEAR_MISSILE_SPEED_MULT
             current_id = fleet.route[fleet.route_index - 1]
             next_id = fleet.route[fleet.route_index] if fleet.route_index < len(fleet.route) else fleet.route[-1]
             current_system = self.systems[current_id]
             next_system = self.systems[next_id]
             segment_distance = current_system.pos.distance_to(next_system.pos)
-            fleet.segment_progress += (config.FLEET_SPEED * dt) / max(1.0, segment_distance)
+            fleet.segment_progress += (speed * dt) / max(1.0, segment_distance)
 
             if fleet.segment_progress <= 1.0:
                 fleet.position = current_system.pos.lerp(next_system.pos, min(1.0, fleet.segment_progress))
@@ -620,12 +710,15 @@ class Galaxy:
                 fleet.position = next_system.pos
                 if fleet.route_index >= len(fleet.route) - 1:
                     fleet.progress = 1.0
-                    arrived.append(fleet)
+                    if fleet.is_missile:
+                        detonations.append(fleet)
+                    else:
+                        arrived.append(fleet)
                     continue
                 else:
                     fleet.route_index += 1
                     fleet.segment_progress = 0.0
-                    if next_system.owner_id != fleet.owner_id:
+                    if not fleet.is_missile and next_system.owner_id != fleet.owner_id:
                         if next_system.ships > config.COMBAT_MIN_SHIPS:
                             if fleet.ships > next_system.ships:
                                 next_system.owner_id = fleet.owner_id
@@ -645,6 +738,9 @@ class Galaxy:
         for fleet in arrived:
             target = self.systems[fleet.target_id]
             resolve_fleet_arrival(fleet, target)
+
+        for fleet in detonations:
+            self._detonate(self.systems[fleet.target_id])
 
         if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
@@ -705,6 +801,8 @@ class Galaxy:
         seen_pairs: set[tuple[int, int]] = set()
 
         for fleet in self.fleets:
+            if fleet.is_missile:
+                continue
             if fleet.owner_id is None or fleet.ships <= config.COMBAT_MIN_SHIPS:
                 continue
             shooter_range = gun_range(fleet)
@@ -720,6 +818,8 @@ class Galaxy:
             for other in self._nearby_fleets(fleet.position, shooter_range, fleet_grid):
                 if other is fleet or other.owner_id == fleet.owner_id:
                     continue
+                if other.is_missile:
+                    continue
                 if other.ships <= config.COMBAT_MIN_SHIPS:
                     continue
                 pair = (fleet.id, other.id) if fleet.id < other.id else (other.id, fleet.id)
@@ -730,7 +830,7 @@ class Galaxy:
                 shots += fire_at_target(other, fleet, other.position, fleet.position, dt, config.FLEET_VS_FLEET_PER_SHIP, self.empires[other.owner_id].color, self.rng)
                 self.combat_shots.extend(shots)
 
-        self.fleets = [f for f in self.fleets if f.ships > config.COMBAT_MIN_SHIPS]
+        self.fleets = [f for f in self.fleets if f.is_missile or f.ships > config.COMBAT_MIN_SHIPS]
         if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
 

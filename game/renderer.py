@@ -30,6 +30,10 @@ class Renderer:
         self._empire_row_rects: list[tuple[pygame.Rect, object]] = []
         self._empire_row_hit_width = 540
         self.popup = EmpirePopup()
+        self.shake_timer = 0.0
+        self.shake_intensity = 0.0
+        self.warn_flash_phase = 0.0
+        self.alerts: list[str] = []
 
     def _recache_fonts(self):
         w = self.screen.get_width()
@@ -49,6 +53,16 @@ class Renderer:
         self._ship_label_cache.clear()
         self._fleet_label_cache.clear()
 
+    def update_shake(self, dt: float) -> None:
+        self.shake_timer = max(0.0, self.shake_timer - dt)
+        for explosion in self.galaxy.explosions if hasattr(self, "galaxy") else []:
+            pass
+        self.warn_flash_phase += dt
+
+    def trigger_shake(self) -> None:
+        self.shake_timer = config.SHAKE_DURATION
+        self.shake_intensity = config.SHAKE_INTENSITY
+
     def world_to_screen(self, world_pos):
         return pygame.Vector2(
             world_pos.x * self.camera['zoom'] + self.camera['offset_x'],
@@ -61,20 +75,52 @@ class Renderer:
             (screen_pos[1] - self.camera['offset_y']) / self.camera['zoom'],
         )
 
-    def draw(self, galaxy, player, paused, speed, camera):
+    def draw(self, galaxy, player, paused, speed, camera, dt=0.016):
+        self.galaxy = galaxy
         self._recache_fonts()
+        self._update_shake_state(galaxy, dt)
         self.screen.fill(config.BACKGROUND)
+        shake_offset = self._compute_shake_offset()
+        shake_camera = camera
+        if shake_offset != (0, 0):
+            shake_camera = {
+                'zoom': camera['zoom'],
+                'offset_x': camera['offset_x'] + shake_offset[0],
+                'offset_y': camera['offset_y'] + shake_offset[1],
+            }
         valid_targets = player.valid_target_ids()
-        self._draw_hyperlanes(galaxy, player, camera, valid_targets)
-        self._draw_gun_ranges(galaxy, camera)
-        self._draw_fleets(galaxy, camera)
-        self._draw_combat_shots(galaxy, camera)
-        self._draw_systems(galaxy, player, camera, valid_targets)
+        self._draw_hyperlanes(galaxy, player, shake_camera, valid_targets)
+        self._draw_gun_ranges(galaxy, shake_camera)
+        self._draw_explosions(galaxy, shake_camera)
+        self._draw_fleets(galaxy, shake_camera)
+        self._draw_combat_shots(galaxy, shake_camera)
+        self._draw_systems(galaxy, player, shake_camera, valid_targets)
+        self._draw_missile_warnings(galaxy, shake_camera)
         self._draw_top_bar(galaxy, player, paused, speed)
         self._draw_bottom_bar(galaxy, player)
         self._draw_camera_info(camera)
         self._draw_game_state(galaxy)
         self.popup.draw(self.screen)
+
+    def _update_shake_state(self, galaxy, dt: float) -> None:
+        fresh = [
+            explosion for explosion in galaxy.explosions
+            if explosion.age < dt * 2.0 + 0.001
+        ]
+        if fresh:
+            self.trigger_shake()
+        self.shake_timer = max(0.0, self.shake_timer - dt)
+        self.warn_flash_phase += dt
+
+    def _compute_shake_offset(self) -> tuple[int, int]:
+        if self.shake_timer <= 0.0:
+            return (0, 0)
+        progress = self.shake_timer / config.SHAKE_DURATION
+        magnitude = self.shake_intensity * progress
+        return (
+            int(pygame.time.get_ticks() % 1000 / 1000.0 * 2.0 * math.pi and (math.sin(pygame.time.get_ticks() * 0.07) * magnitude)),
+            int(math.sin(pygame.time.get_ticks() * 0.09) * magnitude),
+        )
 
     def empire_at(self, pos):
         for rect, empire in self._empire_row_rects:
@@ -133,6 +179,7 @@ class Renderer:
         entities.extend(
             (fleet.position, fleet.owner_id, gun_range(fleet))
             for fleet in galaxy.fleets
+            if not fleet.is_missile
         )
 
         for world_pos, owner_id, world_radius in entities:
@@ -153,6 +200,68 @@ class Renderer:
 
             topleft = (int(screen_x) - radius_i - 2, int(screen_y) - radius_i - 2)
             self.screen.blit(surface, topleft)
+
+    def _draw_explosions(self, galaxy, camera):
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+
+        for explosion in galaxy.explosions:
+            progress = min(1.0, explosion.age / explosion.max_age)
+            fade = 1.0 - progress
+            screen_x = explosion.pos.x * zoom + offset_x
+            screen_y = explosion.pos.y * zoom + offset_y
+            peak_radius = explosion.peak_radius * zoom
+            if screen_x < -peak_radius - 50 or screen_x > sw + peak_radius + 50:
+                continue
+            if screen_y < -peak_radius - 50 or screen_y > sh + peak_radius + 50:
+                continue
+
+            if progress < 0.2:
+                flash_progress = progress / 0.2
+                flash_radius = max(2.0, peak_radius * 0.12 * flash_progress)
+                flash_alpha = int(255 * (1.0 - flash_progress * 0.5))
+                flash_surface = pygame.Surface(
+                    (int(flash_radius * 2) + 4, int(flash_radius * 2) + 4),
+                    pygame.SRCALPHA,
+                )
+                pygame.draw.circle(
+                    flash_surface,
+                    (255, 255, 255, flash_alpha),
+                    (int(flash_radius) + 2, int(flash_radius) + 2),
+                    int(flash_radius),
+                )
+                self.screen.blit(
+                    flash_surface,
+                    (int(screen_x) - int(flash_radius) - 2, int(screen_y) - int(flash_radius) - 2),
+                )
+
+            shock_radius = peak_radius * (1.0 - fade * fade)
+            for i in range(3):
+                ring_progress = max(0.0, progress - i * 0.12)
+                if ring_progress <= 0.0:
+                    continue
+                ring_ease = 1.0 - (1.0 - ring_progress) ** 2
+                ring_radius = peak_radius * ring_ease
+                ring_alpha = int(220 * fade * (1.0 - i * 0.28))
+                if ring_radius < 1 or ring_alpha <= 0:
+                    continue
+                pygame.draw.circle(
+                    self.screen,
+                    (255, 200, 90, ring_alpha),
+                    (int(screen_x), int(screen_y)),
+                    int(ring_radius),
+                    max(1, int(4 * fade) + 1),
+                )
+                pygame.draw.circle(
+                    self.screen,
+                    (255, 240, 210),
+                    (int(screen_x), int(screen_y)),
+                    max(1, int(ring_radius * 0.92)),
+                    max(1, int(2 * fade)),
+                )
 
     def _draw_hyperlanes(self, galaxy, player, camera, valid_targets):
         selected = player.selected_system_id
@@ -202,6 +311,10 @@ class Renderer:
             color = galaxy.empires[fleet.owner_id].color
             sx = int(screen_x)
             sy = int(screen_y)
+
+            if fleet.is_missile:
+                self._draw_missile(galaxy, fleet, sx, sy, zoom)
+                continue
 
             if len(fleet.route) > 1 and fleet.route_index < len(fleet.route):
                 current_node = galaxy.systems[fleet.route[fleet.route_index - 1]]
@@ -265,6 +378,81 @@ class Renderer:
                 self._fleet_label_cache["___bg___" + str(label.get_width()) + "_" + str(label.get_height())] = bg
             self.screen.blit(bg, (lx - 2, ly - 1))
             self.screen.blit(label, (lx, ly))
+
+    def _draw_missile(self, galaxy, fleet, sx: int, sy: int, zoom: float) -> None:
+        pulse = (math.sin(self.warn_flash_phase * 12.0) + 1.0) * 0.5
+        halo_radius = int((8 + pulse * 6) * max(1.0, zoom * 0.5))
+        pygame.draw.circle(self.screen, (255, 80, 60), (sx, sy), halo_radius, 2)
+        core_radius = max(3, int(4 * max(1.0, zoom * 0.5)))
+        pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy), core_radius)
+
+        if len(fleet.route) > 1 and fleet.route_index < len(fleet.route):
+            current_node = galaxy.systems[fleet.route[fleet.route_index - 1]]
+            next_node = galaxy.systems[fleet.route[fleet.route_index]]
+            direction = next_node.pos - current_node.pos
+            if direction.length_squared() > 0:
+                direction = direction.normalize()
+                trail_len = 22 + pulse * 8
+                trail_start = (
+                    sx - direction.x * trail_len,
+                    sy - direction.y * trail_len,
+                )
+                trail_surface = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
+                pygame.draw.line(
+                    trail_surface,
+                    (255, 120, 60, 180),
+                    trail_start,
+                    (sx, sy),
+                    max(2, int(3 * max(1.0, zoom * 0.5))),
+                )
+                self.screen.blit(trail_surface, (0, 0))
+
+        label = self.tiny_font.render("NUCLEAR", True, (255, 120, 90))
+        lx = sx - label.get_width() // 2
+        ly = sy + halo_radius + 4
+        bg = pygame.Surface((label.get_width() + 6, label.get_height() + 4), pygame.SRCALPHA)
+        bg.fill((0, 0, 0, 190))
+        self.screen.blit(bg, (lx - 3, ly - 2))
+        self.screen.blit(label, (lx, ly))
+
+    def _draw_missile_warnings(self, galaxy, camera) -> None:
+        missiles = [fleet for fleet in galaxy.fleets if fleet.is_missile]
+        if not missiles:
+            return
+
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        blink = (math.sin(self.warn_flash_phase * 8.0) + 1.0) * 0.5
+
+        for missile in missiles:
+            target = galaxy.systems[missile.target_id]
+            target_x = target.pos.x * zoom + offset_x
+            target_y = target.pos.y * zoom + offset_y
+            ring_radius = int((30 + math.sin(self.warn_flash_phase * 5.0) * 6) * max(1.0, zoom * 0.5))
+            pygame.draw.circle(self.screen, (255, 60, 40), (int(target_x), int(target_y)), ring_radius, 2)
+            cross_half = ring_radius // 2
+            tx = int(target_x)
+            ty = int(target_y)
+            pygame.draw.line(self.screen, (255, 60, 40), (tx - cross_half, ty - cross_half), (tx + cross_half, ty + cross_half), 2)
+            pygame.draw.line(self.screen, (255, 60, 40), (tx - cross_half, ty + cross_half), (tx + cross_half, ty - cross_half), 2)
+
+        sw = self.screen.get_width()
+        flash = int(200 + 55 * blink)
+        warn_color = (flash, int(60 * blink), int(40 * blink))
+        first = missiles[0]
+        launcher_name = galaxy.empires[first.owner_id].name
+        target_name = galaxy.systems[first.target_id].name
+        extra = f"  (+{len(missiles) - 1} more)" if len(missiles) > 1 else ""
+        warn_text = f"NUCLEAR LAUNCH DETECTED: {launcher_name} targeting {target_name}{extra}"
+        banner = self.font.render(warn_text, True, warn_color)
+        bg_rect = banner.get_rect()
+        bg_rect.centerx = sw // 2
+        bg_rect.top = config.TOP_BAR_HEIGHT + 6
+        bg = pygame.Surface((bg_rect.width + 24, bg_rect.height + 10), pygame.SRCALPHA)
+        bg.fill((40, 0, 0, 200))
+        self.screen.blit(bg, (bg_rect.x - 12, bg_rect.y - 5))
+        self.screen.blit(banner, bg_rect)
 
     def _draw_combat_shots(self, galaxy, camera):
         zoom = camera['zoom']
@@ -399,7 +587,8 @@ class Renderer:
         self.screen.blit(status, (18, 39))
         player_systems = galaxy.empire_system_count(config.PLAYER_ID)
         player_ships = int(galaxy.empire_ship_count(config.PLAYER_ID))
-        stats = self.small_font.render(f"Your systems: {player_systems}    Your ships: {player_ships}", True, galaxy.empires[config.PLAYER_ID].color)
+        player_missiles = galaxy.empires[config.PLAYER_ID].missiles_remaining
+        stats = self.small_font.render(f"Your systems: {player_systems}    Your ships: {player_ships}    Missiles: {player_missiles}", True, galaxy.empires[config.PLAYER_ID].color)
         self.screen.blit(stats, stats.get_rect(midtop=(sw // 2, 14)))
         controls_text = "LMB: select   RMB: send   MMB drag: pan   MMB click: gathering point   Wheel: zoom   1-9: send N ships   F1-F10: send %   Space: pause   +/-: speed   F: fullscreen   R: new game"
         controls = self.tiny_font.render(controls_text, True, config.MUTED_TEXT)
@@ -497,7 +686,8 @@ class Renderer:
             marker = "YOU" if empire.is_player else "AI"
             dead = "" if empire.alive else " (dead)"
             autopilot_tag = " [AUTO]" if empire.is_player and galaxy.autopilot else ""
-            text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships{dead}"
+            missiles = f"  {empire.missiles_remaining} nukes" if empire.missiles_remaining > 0 else ""
+            text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships{missiles}{dead}"
             surface = row_font.render(text, True, color)
             self.screen.blit(surface, surface.get_rect(right=right_edge, top=cursor_y))
             row_rect = pygame.Rect(right_edge - hit_width, cursor_y, hit_width, row_height)
@@ -515,7 +705,7 @@ class Renderer:
             self._draw_end_screen("VICTORY", "You control the galaxy. Press R to start anew.")
         elif winner is not None:
             self._draw_end_screen("DEFEAT", f"The {winner.name} rules the galaxy. Press R to try again.")
-    
+
     def _draw_end_screen(self, title, subtitle):
         overlay = pygame.Surface(
             (self.screen.get_width(), self.screen.get_height()),

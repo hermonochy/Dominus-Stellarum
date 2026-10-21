@@ -232,6 +232,55 @@ class AIController:
                 self._handle_skirmish(empire_id, owned, front_lines)
 
         self._handle_multi_front_defense(empire_id, owned, front_lines)
+        self._consider_nuclear_launch(empire_id)
+
+    def _consider_nuclear_launch(self, empire_id: int) -> None:
+        empire = self.galaxy.empires[empire_id]
+        if empire.missiles_remaining <= 0:
+            return
+        if self.galaxy.nuclear_cooldown > 0.0:
+            return
+
+        powers = sorted(
+            (
+                (self.galaxy.empire_ship_count(other.id), other.id)
+                for other in self.galaxy.empires
+                if other.alive
+            ),
+            reverse=True,
+        )
+        if len(powers) < 2:
+            return
+
+        top_power, top_id = powers[0]
+        second_power = powers[1][0]
+
+        if top_id == empire_id:
+            return
+        if top_power < config.NUCLEAR_MIN_RUNAWAY_FLEET:
+            return
+        if top_power < second_power * config.NUCLEAR_DOMINANCE_RATIO:
+            return
+        if self.rng.random() >= config.NUCLEAR_LAUNCH_CHANCE:
+            return
+
+        target = max(
+            (system for system in self.galaxy.systems if system.owner_id == top_id),
+            key=lambda system: system.ships,
+            default=None,
+        )
+        if target is None:
+            return
+
+        origin = min(
+            (system for system in self.galaxy.systems if system.owner_id == empire_id),
+            key=lambda system: system.pos.distance_to(target.pos),
+            default=None,
+        )
+        if origin is None:
+            return
+
+        self.galaxy._launch_nuclear(origin.id, target.id)
 
     def _handle_massing_campaign(
         self,

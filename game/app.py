@@ -84,12 +84,21 @@ class GameApp:
                 simulation_dt = dt * self.speed
                 self.galaxy.update(simulation_dt)
                 self.ai.update(simulation_dt)
+                self._drain_pending_messages()
 
             self.renderer.screen = self.screen
-            self.renderer.draw(self.galaxy, self.player, self.paused, self.speed, self.camera)
+            self.renderer.draw(self.galaxy, self.player, self.paused, self.speed, self.camera, dt)
             pygame.display.flip()
 
         pygame.quit()
+
+    def _drain_pending_messages(self) -> None:
+        if not self.galaxy.pending_messages:
+            return
+        message = self.galaxy.pending_messages.pop(0)
+        if len(self.galaxy.pending_messages) < 2:
+            self.player._set_message(message)
+        self.galaxy.pending_messages.clear()
 
     def _run_menu_frame(self):
         for event in pygame.event.get():

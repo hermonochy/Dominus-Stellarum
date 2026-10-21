@@ -1,3 +1,4 @@
+# models.py
 from dataclasses import dataclass
 from typing import Optional
 
@@ -11,6 +12,7 @@ class Empire:
     color: tuple[int, int, int]
     is_player: bool = False
     alive: bool = True
+    missiles_remaining: int = 0
 
 
 @dataclass
@@ -36,10 +38,18 @@ class Fleet:
     route_index: int = 1
     position: pygame.Vector2 = None
     siege_target_id: Optional[int] = None
+    is_missile: bool = False
 
     def __post_init__(self):
         if self.position is None:
             self.position = pygame.Vector2(0, 0)
+
+@dataclass
+class Explosion:
+    pos: pygame.Vector2
+    age: float
+    max_age: float
+    peak_radius: float
 
 @dataclass
 class CombatShot:
