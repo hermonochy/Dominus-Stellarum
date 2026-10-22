@@ -28,6 +28,7 @@ class Galaxy:
         self.active_combat: dict[int, float] = {}
         self.autopilot = False
         self.nuclear_cooldown = 0.0
+        self.nuked_grace: dict[int, float] = {}
         self.pending_messages: list[str] = []
 
         self.grid_cell_size = config.COMBAT_RANGE * 2.0
@@ -52,6 +53,7 @@ class Galaxy:
         self.active_combat.clear()
         self.autopilot = False
         self.nuclear_cooldown = 0.0
+        self.nuked_grace.clear()
         self.pending_messages.clear()
         self.spatial_grid.clear()
         self.path_cache.clear()
@@ -65,6 +67,10 @@ class Galaxy:
         self._ship_count_cache = None
         if self.nuclear_cooldown > 0.0:
             self.nuclear_cooldown = max(0.0, self.nuclear_cooldown - dt)
+        for sid in list(self.nuked_grace):
+            self.nuked_grace[sid] -= dt
+            if self.nuked_grace[sid] <= 0.0:
+                del self.nuked_grace[sid]
         for explosion in self.explosions:
             explosion.age += dt
         self.explosions = [e for e in self.explosions if e.age < e.max_age]
@@ -505,14 +511,19 @@ class Galaxy:
         self.next_fleet_id += 1
         return True
 
-    def _launch_nuclear(self, source_id: int, target_id: int) -> bool:
+    def missile_inbound(self, system_id: int) -> bool:
+        return any(f.is_missile and f.target_id == system_id for f in self.fleets)
+
+    def _launch_nuclear(self, source_id: int, target_id: int, ignore_cooldown: bool = False) -> bool:
         source = self.systems[source_id]
         if source.owner_id is None:
             return False
         empire = self.empires[source.owner_id]
         if empire.missiles_remaining <= 0:
             return False
-        if self.nuclear_cooldown > 0.0:
+        if not ignore_cooldown and self.nuclear_cooldown > 0.0:
+            return False
+        if self.missile_inbound(target_id):
             return False
         route = self.shortest_path(source_id, target_id)
         if route is None or len(route) < 2:
@@ -538,30 +549,30 @@ class Galaxy:
         self.next_fleet_id += 1
         return True
 
-    def _detonate(self, system: StarSystem) -> None:
-        fleet_loss = system.ships * config.NUCLEAR_KILL_FRACTION
-        system.ships = max(0.0, system.ships - fleet_loss)
-        if system.ships < config.COMBAT_MIN_SHIPS:
-            system.ships = 0.0
-        if system.owner_id == config.PLAYER_ID and fleet_loss >= 1.0:
-            self.pending_messages.append(
-                f"Nuclear detonation at {system.name}! Your fleet was devastated."
-            )
+    def _apply_nuclear_strike(self, node: StarSystem) -> None:
+        if node.ships > 0.0:
+            loss = node.ships
+            node.ships = 0.0
+            if node.owner_id == config.PLAYER_ID and loss >= 1.0:
+                self.pending_messages.append(f"All ships lost at {node.name}!")
 
+        production_damage = config.NUCLEAR_PRODUCTION_DAMAGE
+        if production_damage > 0.0:
+            node.production *= (1.0 - production_damage)
+
+    def _detonate(self, system: StarSystem) -> None:
+        affected = [system]
         for other in self.systems:
             if other.id == system.id:
                 continue
             distance = other.pos.distance_to(system.pos)
-            if distance > config.NUCLEAR_EFFECT_RADIUS:
-                continue
-            falloff = 1.0 - distance / config.NUCLEAR_EFFECT_RADIUS
-            kill = other.ships * config.NUCLEAR_KILL_FRACTION * config.NUCLEAR_SPLASH_FRACTION * falloff
-            if kill <= 0.0:
-                continue
-            other.ships = max(0.0, other.ships - kill)
-            if other.owner_id == config.PLAYER_ID and kill >= 1.0:
-                self.pending_messages.append(f"Blast wave struck {other.name}.")
+            if distance < config.NUCLEAR_EFFECT_RADIUS:
+                affected.append(other)
 
+        for node in affected:
+            self._apply_nuclear_strike(node)
+
+        self.nuked_grace[system.id] = config.NUCLEAR_NUKED_GRACE
         self.explosions.append(
             Explosion(
                 pos=system.pos.copy(),

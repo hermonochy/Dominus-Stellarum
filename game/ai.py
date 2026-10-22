@@ -18,6 +18,9 @@ class AIController:
         self.massing_focus: dict[int, int | None] = {}
         self.massing_stage_point: dict[int, int | None] = {}
         self.massing_timer: dict[int, float] = {}
+        self.nuclear_lockouts: dict[int, float] = {}
+        self.dominance_detected: dict[int, float] = {}
+        self.spite_detectors: dict[int, float] = {}
 
     def update(self, dt: float) -> None:
         self.think_timer += dt
@@ -39,6 +42,19 @@ class AIController:
                 self.massing_stage_point[empire_id] = None
                 del self.massing_timer[empire_id]
 
+        for empire_id in list(self.nuclear_lockouts.keys()):
+            self.nuclear_lockouts[empire_id] -= dt
+            if self.nuclear_lockouts[empire_id] <= 0.0:
+                del self.nuclear_lockouts[empire_id]
+
+        for empire_id in list(self.dominance_detected.keys()):
+            self.dominance_detected[empire_id] -= dt
+
+        for empire_id in list(self.spite_detectors.keys()):
+            self.spite_detectors[empire_id] -= dt
+            if self.spite_detectors[empire_id] <= 0.0:
+                del self.spite_detectors[empire_id]
+
         if self.think_timer < config.AI_THINK_INTERVAL:
             return
         self.think_timer -= config.AI_THINK_INTERVAL
@@ -49,6 +65,179 @@ class AIController:
             if empire.is_player and not self.galaxy.autopilot:
                 continue
             self._think_for_empire(empire.id)
+
+    def _nuclear_target_score(self, system: StarSystem) -> float:
+        inbound = sum(
+            fleet.ships
+            for fleet in self.galaxy.fleets
+            if not fleet.is_missile
+            and fleet.target_id == system.id
+            and fleet.owner_id == system.owner_id
+        )
+        return system.ships + inbound + (system.production * config.NUCLEAR_PRODUCTION_TARGET_WEIGHT)
+
+    def _consider_nuclear_launch(self, empire_id: int) -> None:
+        empire = self.galaxy.empires[empire_id]
+        if empire.missiles_remaining <= 0:
+            return
+        if self.nuclear_lockouts.get(empire_id, 0.0) > 0.0:
+            return
+        if self.galaxy.nuclear_cooldown > 0.0:
+            return
+
+        powers = sorted(
+            (
+                (self.galaxy.empire_ship_count(other.id), other.id, other.is_player)
+                for other in self.galaxy.empires
+                if other.alive
+            ),
+            reverse=True,
+        )
+        if len(powers) < 2:
+            return
+
+        top_power, top_id, top_is_player = powers[0]
+        second_power = powers[1][0]
+        
+        total_galactic = sum(power for power, eid, _ in powers)
+        if total_galactic <= 0:
+            return
+            
+        top_share = top_power / total_galactic
+        pairwise_ratio = top_power / max(1.0, second_power)
+
+        dominant = (
+            pairwise_ratio >= config.NUCLEAR_DOMINANCE_RATIO or
+            top_share >= config.NUCLEAR_SHARE_THRESHOLD
+        )
+
+        min_threshold = config.NUCLEAR_MIN_RUNAWAY_START_MULT * config.STARTING_SHIPS
+        if top_power < min_threshold:
+            dominant = False
+
+        if dominant:
+            if self.dominance_detected.get(top_id, 0.0) <= 0.0:
+                self.dominance_detected[top_id] = config.NUCLEAR_DELIBERATION_TIME
+            else:
+                self.dominance_detected[top_id] -= config.AI_THINK_INTERVAL
+        else:
+            self.dominance_detected[top_id] = 0.0
+
+        if self.dominance_detected.get(top_id, 0.0) > 0.0:
+            if self.rng.random() >= config.NUCLEAR_LAUNCH_CHANCE:
+                return
+
+            targets = [
+                system for system in self.galaxy.systems
+                if system.owner_id == top_id
+                and system.id not in self.galaxy.nuked_grace
+            ]
+            
+            if not targets:
+                targets = [
+                    system for system in self.galaxy.systems
+                    if system.owner_id == top_id
+                ]
+            
+            if not targets:
+                return
+
+            best = max(targets, key=self._nuclear_target_score)
+            target_system = best
+
+            origin = min(
+                (system for system in self.galaxy.systems 
+                 if system.owner_id == empire_id),
+                key=lambda system: system.pos.distance_to(target_system.pos),
+                default=None,
+            )
+            if origin is None:
+                return
+
+            if self.galaxy._launch_nuclear(origin.id, target_system.id):
+                self.nuclear_lockouts[empire_id] = config.NUCLEAR_LAUNCH_LOCKOUT
+
+    def _consider_spite_launch(self, empire_id: int) -> None:
+        empire = self.galaxy.empires[empire_id]
+        if empire.missiles_remaining <= 0:
+            return
+        if self.nuclear_lockouts.get(empire_id, 0.0) > 0.0:
+            return
+
+        systems_owned = self.galaxy.empire_system_count(empire_id)
+        if systems_owned > config.NUCLEAR_SPITE_SYSTEM_THRESHOLD:
+            return
+
+        powers = sorted(
+            (
+                (self.galaxy.empire_ship_count(other.id), other.id)
+                for other in self.galaxy.empires
+                if other.alive and other.id != empire_id
+            ),
+            reverse=True,
+        )
+        if not powers:
+            return
+
+        target_power, target_id = powers[0]
+
+        if self.rng.random() < config.NUCLEAR_LAUNCH_CHANCE:
+            if target_id in self.spite_detectors:
+                self.spite_detectors[target_id] += config.AI_THINK_INTERVAL
+            else:
+                self.spite_detectors[target_id] = config.AI_THINK_INTERVAL
+
+        if self.spite_detectors.get(target_id, 0.0) <= config.NUCLEAR_DELIBERATION_TIME * 0.5:
+            return
+
+        targets = [
+            system for system in self.galaxy.systems
+            if system.owner_id == target_id
+            and system.id not in self.galaxy.nuked_grace
+        ]
+        if not targets:
+            targets = [
+                system for system in self.galaxy.systems
+                if system.owner_id == target_id
+            ]
+        if not targets:
+            return
+        
+        targets_sorted = sorted(targets, key=self._nuclear_target_score, reverse=True)
+        num_missiles = empire.missiles_remaining
+        
+        launched = 0
+        used_targets = set()
+        
+        for missile_idx in range(min(num_missiles, len(targets_sorted))):
+            for candidate in targets_sorted:
+                if candidate.id in used_targets:
+                    continue
+                target = candidate
+                break
+            else:
+                break
+            
+            origin = min(
+                (system for system in self.galaxy.systems 
+                 if system.owner_id == empire_id),
+                key=lambda system: system.pos.distance_to(target.pos),
+                default=None,
+            )
+            if origin is None:
+                break
+            
+            if self.galaxy._launch_nuclear(origin.id, target.id, ignore_cooldown=True):
+                launched += 1
+                used_targets.add(target.id)
+            else:
+                break
+                
+            if launched >= num_missiles:
+                break
+        
+        empire.missiles_remaining = 0
+        self.nuclear_lockouts[empire_id] = config.NUCLEAR_LAUNCH_LOCKOUT
 
     def _adjacent_enemy_empires(self, empire_id: int) -> dict[int, float]:
         border_ids: set[int] = set()
@@ -134,7 +323,7 @@ class AIController:
         return True
 
     def _count_adjacent_enemies(self, empire_id: int) -> int:
-        seen = set()
+        seen: set[int] = set()
         for system in self.galaxy.systems:
             if system.owner_id != empire_id:
                 continue
@@ -145,520 +334,298 @@ class AIController:
         return len(seen)
 
     def _find_best_staging_point(self, empire_id: int, front_lines: set[int]) -> int | None:
-        rear_systems = [
-            system for system in self.galaxy.systems
-            if system.owner_id == empire_id and system.id not in front_lines
-        ]
-        if not rear_systems:
-            return None
-
-        best = None
-        best_score = float('inf')
-
-        for system in rear_systems:
-            neighbors = [self.galaxy.systems[nid] for nid in self.galaxy.neighbors[system.id]]
-            friendly_neighbors = [n for n in neighbors if n.owner_id == empire_id]
-
-            if len(neighbors) - len(friendly_neighbors) > 1:
+        best: tuple[float, int] | None = None
+        for fid in front_lines:
+            system = self.galaxy.systems[fid]
+            if system.owner_id != empire_id:
                 continue
-
-            sys_front_distance = float('inf')
-            for fid in front_lines:
-                path = self.galaxy.shortest_path(system.id, fid)
-                if path:
-                    dist = len(path) - 1
-                    if dist < sys_front_distance:
-                        sys_front_distance = dist
-
-            score = sys_front_distance * 10 + (100 - system.ships) + (50 - system.production * 100)
-
-            if score < best_score:
-                best_score = score
-                best = system.id
-
-        return best
+            friendly_neighbors = sum(
+                1
+                for nid in self.galaxy.neighbors[fid]
+                if self.galaxy.systems[nid].owner_id == empire_id
+            )
+            score = system.ships + friendly_neighbors * 10.0
+            if best is None or score > best[0]:
+                best = (score, fid)
+        return best[1] if best is not None else None
 
     def _find_primary_massing_target(self, empire_id: int) -> int | None:
-        enemies = self._adjacent_enemy_empires(empire_id)
-        if not enemies:
+        adjacent = self._adjacent_enemy_empires(empire_id)
+        if not adjacent:
             return None
-        return max(enemies.items(), key=lambda x: x[1])[0]
+        return min(adjacent, key=lambda eid: adjacent[eid])
 
-    def _try_initiate_breakthrough(self, empire_id: int, front_lines: set[int]) -> None:
-        total_ships = self.galaxy.empire_ship_count(empire_id)
-        front_reserves = sum(
-            self.galaxy.systems[fid].ships
-            for fid in front_lines
-            if self.galaxy.systems[fid].owner_id == empire_id
-        )
-
-        surplus = total_ships - front_reserves - config.AI_BREAKTHROUGH_MIN_SURPLUS
-
-        if surplus < config.AI_BREAKTHROUGH_MIN_SURPLUS:
-            self.breakthrough_focus[empire_id] = None
+    def _maintain_massing_campaign(self, empire_id: int) -> None:
+        if empire_id not in self.massing_focus or self.massing_focus[empire_id] is None:
             return
-
-        target = self._find_best_breakthrough_target(empire_id, front_lines)
-        if target is None:
-            self.breakthrough_focus[empire_id] = None
+        stage_id = self.massing_stage_point.get(empire_id)
+        if stage_id is None:
             return
-
-        self.breakthrough_focus[empire_id] = target
-        self.breakthrough_timer[empire_id] = config.AI_BREAKTHROUGH_FOCUS_DURATION
-
-    def _think_for_empire(self, empire_id: int) -> None:
-        owned = self.galaxy.owned_systems(empire_id)
-        if not owned:
-            return
-
-        front_lines = self._identify_front_lines(empire_id)
-
-        own_power = self.galaxy.empire_ship_count(empire_id)
-        enemy_powers = self._adjacent_enemy_empires(empire_id)
-        self._update_blitz_posture(empire_id, own_power, enemy_powers)
-
-        expansions = self._handle_expansion(empire_id, owned)
-
-        self._strip_excess_from_rear(empire_id, owned, front_lines)
-
-        if self.massing_focus.get(empire_id) is not None:
-            self._handle_massing_campaign(empire_id, owned, front_lines)
-        elif self.blitz_target.get(empire_id) is not None:
-            self._handle_blitz(empire_id, owned)
-        elif self.breakthrough_focus.get(empire_id) is not None:
-            self._handle_breakthrough_push(empire_id, owned, front_lines)
-        elif expansions == 0 or self.rng.random() > 0.6:
-            if not self._try_initiate_massing_campaign(empire_id, front_lines):
-                self._handle_skirmish(empire_id, owned, front_lines)
-
-        self._handle_multi_front_defense(empire_id, owned, front_lines)
-        self._consider_nuclear_launch(empire_id)
-
-    def _consider_nuclear_launch(self, empire_id: int) -> None:
-        empire = self.galaxy.empires[empire_id]
-        if empire.missiles_remaining <= 0:
-            return
-        if self.galaxy.nuclear_cooldown > 0.0:
-            return
-
-        powers = sorted(
-            (
-                (self.galaxy.empire_ship_count(other.id), other.id)
-                for other in self.galaxy.empires
-                if other.alive
-            ),
-            reverse=True,
-        )
-        if len(powers) < 2:
-            return
-
-        top_power, top_id = powers[0]
-        second_power = powers[1][0]
-
-        if top_id == empire_id:
-            return
-        if top_power < config.NUCLEAR_MIN_RUNAWAY_FLEET:
-            return
-        if top_power < second_power * config.NUCLEAR_DOMINANCE_RATIO:
-            return
-        if self.rng.random() >= config.NUCLEAR_LAUNCH_CHANCE:
-            return
-
-        target = max(
-            (system for system in self.galaxy.systems if system.owner_id == top_id),
-            key=lambda system: system.ships,
-            default=None,
-        )
-        if target is None:
-            return
-
-        origin = min(
-            (system for system in self.galaxy.systems if system.owner_id == empire_id),
-            key=lambda system: system.pos.distance_to(target.pos),
-            default=None,
-        )
-        if origin is None:
-            return
-
-        self.galaxy._launch_nuclear(origin.id, target.id)
-
-    def _handle_massing_campaign(
-        self,
-        empire_id: int,
-        owned: List[StarSystem],
-        front_lines: set[int],
-    ) -> None:
-        stage_point_id = self.massing_stage_point.get(empire_id)
-        target_empire_id = self.massing_focus.get(empire_id)
-
-        if stage_point_id is None or target_empire_id is None:
+        stage = self.galaxy.systems[stage_id]
+        if stage.owner_id != empire_id:
             self.massing_focus[empire_id] = None
             self.massing_stage_point[empire_id] = None
             return
 
-        stage_point = self.galaxy.systems[stage_point_id]
-
-        for system in owned:
-            if system.id == stage_point_id:
+        for system in self.galaxy.systems:
+            if system.owner_id != empire_id or system.id == stage_id:
                 continue
-            if system.id in front_lines:
+            if system.id in self.galaxy.gathering_points:
                 continue
             excess = system.ships - config.AI_MASSING_STAGE_RETENTION
-            if excess > config.AI_MASSING_STAGE_RETENTION:
-                send_amount = min(int(excess * 0.7), int(system.ships * 0.5))
-                if send_amount >= 5:
-                    route = self.galaxy.shortest_path(system.id, stage_point_id)
-                    if route:
-                        self.galaxy._launch_exact(system.id, stage_point_id, send_amount, route)
-
-        stage_defense = stage_point.ships
-        target_strength = self.galaxy.empire_ship_count(target_empire_id)
-
-        if stage_defense >= target_strength * config.AI_MASSING_TARGET_RATIO:
-            attack_options: list[Tuple[float, StarSystem, StarSystem]] = []
-
-            for system in owned:
-                if system.id == stage_point_id:
-                    continue
-                for nid in self.galaxy.neighbors[system.id]:
-                    node = self.galaxy.systems[nid]
-                    if node.owner_id != target_empire_id:
-                        continue
-                    if self._on_cooldown(system.id, node.id):
-                        continue
-                    advantage = self._calculate_attack_advantage(system, node)
-                    if advantage > 0:
-                        attack_options.append((advantage, system, node))
-
-            if attack_options:
-                attack_options.sort(key=lambda x: x[0], reverse=True)
-                for _, source, target in attack_options[:2]:
-                    available = source.ships - config.AI_FRONT_LINE_RESERVE
-                    if available > 0:
-                        send_pct = min(config.AI_MASSING_LAUNCH_PERCENT, max(50, int(available / max(1.0, source.ships) * 100)))
-                        if self.galaxy.launch_fleet(source.id, target.id, send_pct):
-                            self.attack_cooldowns[(source.id, target.id)] = config.AI_COOLDOWN * 0.5
-        else:
-            if stage_point.ships < config.AI_FRONT_LINE_RESERVE * 3:
-                for system in owned:
-                    if system.id in front_lines or system.id == stage_point_id:
-                        continue
-                    excess = system.ships - config.AI_REAR_GUARD_MAX
-                    if excess > config.AI_FRONT_LINE_RESERVE:
-                        send_amt = min(int(excess * 0.6), 30)
-                        route = self.galaxy.shortest_path(system.id, stage_point_id)
-                        if route and send_amt >= 5:
-                            self.galaxy._launch_exact(system.id, stage_point_id, send_amt, route)
-
-    def _strip_excess_from_rear(
-        self,
-        empire_id: int,
-        owned: List[StarSystem],
-        front_lines: set[int],
-    ) -> None:
-        rear_excess: list[Tuple[float, StarSystem]] = []
-        for system in owned:
+            if excess < 1.0:
+                continue
+            front_lines = self._identify_front_lines(empire_id)
             if system.id in front_lines:
                 continue
-            excess = system.ships - config.AI_REAR_GUARD_MAX
-            if excess > 1.0:
-                rear_excess.append((excess, system))
-
-        if not rear_excess:
-            return
-        if not front_lines:
-            return
-
-        front_list = [self.galaxy.systems[fid] for fid in front_lines]
-        rear_excess.sort(key=lambda x: x[0], reverse=True)
-
-        dispatched = 0
-        for excess, system in rear_excess:
-            if dispatched >= config.AI_MAX_REAR_DISPATCHES:
-                break
-            target = min(front_list, key=lambda s: s.ships)
-            send_pct = min(95, int(excess / max(1.0, system.ships) * 100) + 5)
-            if self.galaxy.launch_fleet(system.id, target.id, send_pct):
-                dispatched += 1
-
-    def _update_blitz_posture(
-        self,
-        empire_id: int,
-        own_power: float,
-        enemy_powers: dict[int, float],
-    ) -> None:
-        dominant = [
-            (power, eid)
-            for eid, power in enemy_powers.items()
-            if own_power >= config.AI_BLITZ_POWER_RATIO * max(1.0, power)
-        ]
-        if dominant:
-            self.blitz_target[empire_id] = min(dominant)[1]
-        else:
-            self.blitz_target[empire_id] = None
-
-    def _handle_expansion(
-        self,
-        empire_id: int,
-        owned: List[StarSystem],
-    ) -> int:
-        options: list[Tuple[float, StarSystem, StarSystem]] = []
-        for system in owned:
-            if system.ships < config.AI_REAR_GUARD_MAX + config.AI_RESERVE_SHIPS:
+            amount = int(excess * config.AI_MASSING_LAUNCH_PERCENT / 100.0)
+            if amount < 1:
                 continue
-            for nid in self.galaxy.neighbors[system.id]:
-                node = self.galaxy.systems[nid]
-                if node.owner_id is not None:
-                    continue
-                if self._on_cooldown(system.id, node.id):
-                    continue
-                score = node.production + config.AI_NEUTRAL_PRIORITY_BONUS + system.ships * 0.01
-                options.append((score, system, node))
+            route = self.galaxy._safe_route(system.id, stage_id, empire_id)
+            if route is None:
+                continue
+            self.galaxy._launch_exact(system.id, stage_id, amount, route)
 
-        if not options:
-            return 0
-        options.sort(key=lambda x: x[0], reverse=True)
+    def _execute_massing_assault(self, empire_id: int) -> None:
+        focus_id = self.massing_focus.get(empire_id)
+        stage_id = self.massing_stage_point.get(empire_id)
+        if focus_id is None or stage_id is None:
+            return
+
+        staging_power = self.galaxy.systems[stage_id].ships
+        targets = [
+            system
+            for system in self.galaxy.systems
+            if system.owner_id == focus_id
+        ]
+        if not targets:
+            self.massing_focus[empire_id] = None
+            self.massing_stage_point[empire_id] = None
+            return
+
+        target_empire_ships = self.galaxy.empire_ship_count(focus_id)
+        if staging_power < target_empire_ships / config.AI_MASSING_TARGET_RATIO:
+            return
+
+        target = min(
+            targets,
+            key=lambda system: self.galaxy.systems[stage_id].pos.distance_to(system.pos),
+        )
+        if self.galaxy.launch_fleet(stage_id, target.id, 100):
+            self.massing_focus[empire_id] = None
+            self.massing_stage_point[empire_id] = None
+
+    def _try_expansion(self, empire_id: int, budget: int) -> int:
+        expansions = 0
+        owned = [
+            system for system in self.galaxy.systems
+            if system.owner_id == empire_id
+        ]
+        for system in owned:
+            if expansions >= budget:
+                break
+            if system.ships < config.AI_ATTACK_THRESHOLD:
+                continue
+            candidates: list[tuple[float, int]] = []
+            for nid in self.galaxy.neighbors[system.id]:
+                neighbor = self.galaxy.systems[nid]
+                if neighbor.owner_id == empire_id:
+                    continue
+                is_neutral = neighbor.owner_id is None
+                bonus = config.AI_NEUTRAL_PRIORITY_BONUS if is_neutral else 0.0
+                score = neighbor.ships - bonus + system.pos.distance_to(neighbor.pos) * 0.1
+                candidates.append((score, nid))
+            if not candidates:
+                continue
+            candidates.sort()
+            for score, nid in candidates:
+                neighbor = self.galaxy.systems[nid]
+                required = neighbor.ships * config.AI_MIN_ATTACK_RATIO
+                if system.ships <= required:
+                    continue
+                pair = (empire_id, nid)
+                if self.attack_cooldowns.get(pair, 0.0) > 0.0:
+                    continue
+                if self.galaxy.launch_fleet(system.id, nid, 90):
+                    self.attack_cooldowns[pair] = config.AI_COOLDOWN
+                    expansions += 1
+                    break
+        return expansions
+
+    def _try_defense(self, empire_id: int) -> None:
+        threats: dict[int, float] = {}
+        for fleet in self.galaxy.fleets:
+            if fleet.is_missile:
+                continue
+            if fleet.owner_id == empire_id:
+                continue
+            if fleet.ships <= config.COMBAT_MIN_SHIPS:
+                continue
+            threats[fleet.target_id] = threats.get(fleet.target_id, 0.0) + fleet.ships
+
+        for target_id, threat in threats.items():
+            target = self.galaxy.systems[target_id]
+            if target.owner_id != empire_id:
+                continue
+            if target.ships >= threat * config.AI_MIN_ATTACK_RATIO:
+                continue
+            responders: list[tuple[float, int]] = []
+            for system in self.galaxy.systems:
+                if system.owner_id != empire_id or system.id == target_id:
+                    continue
+                if system.id in self._identify_front_lines(empire_id):
+                    continue
+                excess = system.ships - config.AI_REAR_GUARD_MAX
+                if excess < 1.0:
+                    continue
+                route = self.galaxy.shortest_path(system.id, target_id)
+                if route is None:
+                    continue
+                responders.append((len(route), system.id))
+            if not responders:
+                continue
+            responders.sort()
+            for hops, responder_id in responders[: config.AI_MAX_REAR_DISPATCHES]:
+                responder = self.galaxy.systems[responder_id]
+                amount = int(responder.ships * config.AI_REAR_SEND_PERCENT / 100.0)
+                if amount < 1:
+                    continue
+                route = self.galaxy.shortest_path(responder_id, target_id)
+                if route is None:
+                    continue
+                self.galaxy._launch_exact(responder_id, target_id, amount, route)
+
+    def _try_blitz(self, empire_id: int) -> None:
+        blitz_target = self.blitz_target.get(empire_id)
+        if blitz_target is None:
+            return
+        target = self.galaxy.systems[blitz_target]
+        attackers = [
+            system
+            for system in self.galaxy.systems
+            if system.owner_id == empire_id
+            and system.id in self.galaxy.neighbors.get(blitz_target, ())
+        ]
+        if not attackers or target.owner_id == empire_id:
+            self.blitz_target[empire_id] = None
+            return
+
+        total_available = sum(system.ships for system in attackers)
+        if total_available < target.ships * config.AI_BLITZ_LOCAL_RATIO:
+            return
 
         launched = 0
-        for _, source, target in options:
-            if launched >= config.AI_MAX_EXPANSIONS_PER_TICK:
+        for system in sorted(attackers, key=lambda s: s.ships, reverse=True):
+            if launched >= config.AI_BLITZ_WAVE_SIZE:
                 break
-            if self.galaxy.launch_fleet(source.id, target.id, 70):
-                self.attack_cooldowns[(source.id, target.id)] = config.AI_COOLDOWN
+            if system.ships < target.ships / max(1, len(attackers)):
+                continue
+            if self.galaxy.launch_fleet(system.id, blitz_target, 80):
                 launched += 1
-        return launched
+        if launched > 0:
+            self.blitz_target[empire_id] = None
 
-    def _handle_breakthrough_push(
-        self,
-        empire_id: int,
-        owned: List[StarSystem],
-        front_lines: set[int],
-    ) -> None:
-        target_enemy_id = self.breakthrough_focus.get(empire_id)
-        if target_enemy_id is None:
+    def _maintain_breakthrough(self, empire_id: int) -> None:
+        focus_id = self.breakthrough_focus.get(empire_id)
+        if focus_id is None:
+            return
+        target = self.galaxy.systems[focus_id]
+        if target.owner_id == empire_id:
+            self.breakthrough_focus[empire_id] = None
             return
 
-        attack_options: list[Tuple[float, StarSystem, StarSystem]] = []
-
-        for system in owned:
-            if system.id not in front_lines:
-                continue
-            for nid in self.galaxy.neighbors[system.id]:
-                node = self.galaxy.systems[nid]
-                if node.owner_id != target_enemy_id:
-                    continue
-                if self._on_cooldown(system.id, node.id):
-                    continue
-                advantage = self._calculate_attack_advantage(system, node)
-                if advantage > 0:
-                    attack_options.append((advantage + node.ships * 3.0, system, node))
-
-        if not attack_options:
-            return
-        attack_options.sort(key=lambda x: x[0], reverse=True)
-
-        for _, source, target in attack_options[:3]:
-            available = source.ships - config.AI_FRONT_LINE_RESERVE
-            if available <= 0:
-                continue
-            send_pct = min(85, max(50, int(available / max(1.0, source.ships) * 100)))
-            if self.galaxy.launch_fleet(source.id, target.id, send_pct):
-                self.attack_cooldowns[(source.id, target.id)] = config.AI_COOLDOWN / config.AI_BREAKTHROUGH_EXTRA_AGGRESSIVE
-
-    def _handle_blitz(
-        self,
-        empire_id: int,
-        owned: List[StarSystem],
-    ) -> None:
-        enemy_id = self.blitz_target.get(empire_id)
-        if enemy_id is None:
-            return
-
-        options: list[Tuple[float, StarSystem, StarSystem]] = []
-        for system in owned:
-            for nid in self.galaxy.neighbors[system.id]:
-                node = self.galaxy.systems[nid]
-                if node.owner_id != enemy_id:
-                    continue
-                if self._on_cooldown(system.id, node.id):
-                    continue
-                options.append((node.ships, system, node))
-
-        if not options:
-            return
-        options.sort(key=lambda x: x[0])
-
-        waves_left = config.AI_BLITZ_WAVE_SIZE
-        for _, source, target in options:
-            if waves_left <= 0:
-                break
-            needed = target.ships * config.AI_BLITZ_LOCAL_RATIO + config.AI_FRONT_LINE_RESERVE
-            if source.ships < needed:
-                continue
-            if self.galaxy.launch_fleet(source.id, target.id, 85):
-                self.attack_cooldowns[(source.id, target.id)] = config.AI_BLITZ_COOLDOWN
-                waves_left -= 1
-
-    def _handle_skirmish(
-        self,
-        empire_id: int,
-        owned: List[StarSystem],
-        front_lines: set[int],
-    ) -> None:
-        if self.rng.random() < config.AI_BREAKTHROUGH_CONCENTRATION:
-            surplus = self._count_total_surplus(empire_id, front_lines)
-            if surplus >= config.AI_BREAKTHROUGH_MIN_SURPLUS:
-                self._try_initiate_breakthrough(empire_id, front_lines)
-
-        best: Tuple[float, StarSystem, StarSystem] | None = None
-        for system in owned:
-            if system.ships < config.AI_ATTACK_THRESHOLD + config.AI_FRONT_LINE_RESERVE:
-                continue
-            for enemy in self._get_enemy_neighbors(system, empire_id):
-                if self._on_cooldown(system.id, enemy.id):
-                    continue
-                advantage = self._calculate_attack_advantage(system, enemy)
-                if advantage <= 0:
-                    continue
-                score = advantage + enemy.production * 2.0
-                if best is None or score > best[0]:
-                    best = (score, system, enemy)
-
-        if best is None:
-            return
-        _, source, target = best
-        if self._should_execute_attack(source, target):
-            self._execute_attack(source, target)
-            self.attack_cooldowns[(source.id, target.id)] = config.AI_COOLDOWN
-
-    def _handle_multi_front_defense(
-        self,
-        empire_id: int,
-        owned: List[StarSystem],
-        front_lines: set[int],
-    ) -> None:
-        frontier_threats: list[Tuple[float, StarSystem]] = []
-        for system in owned:
-            if system.id not in front_lines:
-                continue
-            threat = self._calculate_threat(system, empire_id)
-            if threat > 0:
-                frontier_threats.append((threat, system))
-
-        frontier_threats.sort(key=lambda x: x[0], reverse=True)
-        top_strongpoints = [system for threat, system in frontier_threats[:config.AI_DEFENSE_STRONGPOINTS]]
-
-        for system in top_strongpoints:
-            self._attempt_reinforcement(system, empire_id)
-
-        staging = top_strongpoints[0] if top_strongpoints else None
-        if not staging:
-            return
-
-        frontier_ids = {system.id for _, system in frontier_threats[:config.AI_DEFENSE_STRONGPOINTS]}
-        dispatched = 0
-
-        for system in owned:
-            if dispatched >= config.AI_MAX_REAR_DISPATCHES:
-                break
-            if system.id in frontier_ids or system.id == staging.id:
-                continue
-            release_level = config.AI_REAR_GUARD_MAX * config.AI_REAR_RELEASE_MULTIPLIER
-            if system.ships <= release_level:
-                continue
-            if self.galaxy.launch_fleet(system.id, staging.id, config.AI_REAR_SEND_PERCENT):
-                dispatched += 1
-
-    def _attempt_reinforcement(
-        self,
-        system: StarSystem,
-        empire_id: int,
-    ) -> None:
-        friendly_neighbors = [
-            self.galaxy.systems[nid]
-            for nid in self.galaxy.neighbors[system.id]
-            if self.galaxy.systems[nid].owner_id == empire_id
+        border = [
+            system
+            for system in self.galaxy.systems
+            if system.owner_id == empire_id
+            and any(
+                self.galaxy.systems[nid].owner_id == target.owner_id
+                for nid in self.galaxy.neighbors[system.id]
+            )
         ]
-        donors = [s for s in friendly_neighbors if s.ships > config.AI_FRONT_LINE_RESERVE * 2]
-        if not donors:
-            return
-        donor = max(donors, key=lambda s: s.ships - config.AI_FRONT_LINE_RESERVE)
-        donate_fraction = max(25, int((donor.ships - config.AI_FRONT_LINE_RESERVE) / max(1.0, donor.ships) * 100))
-        self.galaxy.launch_fleet(donor.id, system.id, donate_fraction)
-
-    def _on_cooldown(self, source_id: int, target_id: int) -> bool:
-        return self.attack_cooldowns.get((source_id, target_id), 0.0) > 0.0
-
-    def _get_enemy_neighbors(
-        self,
-        system: StarSystem,
-        empire_id: int,
-    ) -> list[StarSystem]:
-        return [
-            self.galaxy.systems[nid]
-            for nid in self.galaxy.neighbors[system.id]
-            if self.galaxy.systems[nid].owner_id not in (empire_id, None)
-        ]
-
-    def _calculate_threat(self, system: StarSystem, empire_id: int) -> float:
-        threat = 0.0
-        for neighbor_id in self.galaxy.neighbors[system.id]:
-            neighbor = self.galaxy.systems[neighbor_id]
-            if neighbor.owner_id == empire_id or neighbor.owner_id is None:
+        for system in border:
+            excess = system.ships - config.AI_FRONT_LINE_RESERVE
+            if excess < config.AI_BREAKTHROUGH_MIN_SURPLUS:
                 continue
-            threat += neighbor.ships * 0.3 + neighbor.production * 2.0
-        return threat
+            amount = int(excess * config.AI_BREAKTHROUGH_CONCENTRATION)
+            if amount < 1:
+                continue
+            self.galaxy.launch_fleet(system.id, focus_id, min(100, int(amount / system.ships * 100)))
 
-    def _calculate_attack_advantage(
-        self,
-        source: StarSystem,
-        target: StarSystem,
-    ) -> float:
-        available = source.ships - config.AI_FRONT_LINE_RESERVE
-        if available <= 0:
-            return -1.0
-        distance_factor = self._estimate_transit_damage(source, target)
-        effective_strength = available * (1 - distance_factor * 0.3)
-        return (effective_strength / max(1.0, target.ships)) - config.AI_MIN_ATTACK_RATIO
+    def _release_rear_ships(self, empire_id: int) -> None:
+        front_lines = self._identify_front_lines(empire_id)
+        if not front_lines:
+            return
+        dispatches = 0
+        for system in self.galaxy.systems:
+            if dispatches >= config.AI_MAX_REAR_DISPATCHES:
+                break
+            if system.owner_id != empire_id or system.id in front_lines:
+                continue
+            excess = system.ships - config.AI_REAR_GUARD_MAX * config.AI_REAR_RELEASE_MULTIPLIER
+            if excess < config.AI_ATTACK_THRESHOLD:
+                continue
+            nearest_front = min(
+                front_lines,
+                key=lambda fid: system.pos.distance_to(self.galaxy.systems[fid].pos),
+            )
+            amount = int(excess * config.AI_REAR_SEND_PERCENT / 100.0)
+            if amount < 1:
+                continue
+            route = self.galaxy._safe_route(system.id, nearest_front, empire_id)
+            if route is None:
+                route = self.galaxy.shortest_path(system.id, nearest_front)
+            if route is None:
+                continue
+            if self.galaxy._launch_exact(system.id, nearest_front, amount, route):
+                dispatches += 1
 
-    def _estimate_transit_damage(
-        self,
-        source: StarSystem,
-        target: StarSystem,
-    ) -> float:
-        if source.id in self.galaxy.neighbors[target.id]:
-            return 0.0
-        damage_estimate = 0.0
-        path = self.galaxy.shortest_path(source.id, target.id)
-        if path:
-            for node_id in path[1:-1]:
-                node = self.galaxy.systems[node_id]
-                if node.owner_id not in (None, source.owner_id):
-                    damage_estimate += 0.15
-        return min(damage_estimate, 0.5)
+    def _think_for_empire(self, empire_id: int) -> None:
+        owned = self.galaxy.empire_system_count(empire_id)
+        if owned <= 0:
+            return
 
-    def _should_execute_attack(self, source: StarSystem, target: StarSystem) -> bool:
-        available = source.ships - config.AI_FRONT_LINE_RESERVE
-        if available < target.ships * config.AI_MIN_ATTACK_RATIO:
-            return False
-        return self.rng.random() < config.AI_BOLDNESS_FACTOR
+        self._consider_nuclear_launch(empire_id)
+        self._consider_spite_launch(empire_id)
 
-    def _execute_attack(self, source: StarSystem, target: StarSystem) -> None:
-        available = source.ships - config.AI_FRONT_LINE_RESERVE
-        send_percent = self._calculate_attack_percentage(available, target)
-        self.galaxy.launch_fleet(source.id, target.id, send_percent)
+        if self.massing_focus.get(empire_id) is not None:
+            self._maintain_massing_campaign(empire_id)
+            self._execute_massing_assault(empire_id)
+        elif self.rng.random() < config.AI_MASSING_CHANCE:
+            self._try_initiate_massing_campaign(
+                empire_id, self._identify_front_lines(empire_id)
+            )
 
-    def _calculate_attack_percentage(
-        self,
-        available_ships: float,
-        target: StarSystem,
-    ) -> int:
-        ratio = available_ships / max(1.0, target.ships)
-        if ratio >= 2.0:
-            return 85
-        elif ratio >= 1.5:
-            return 75
-        elif ratio >= 1.35:
-            return 65
+        if self.breakthrough_focus.get(empire_id) is None:
+            self.breakthrough_focus[empire_id] = self._find_best_breakthrough_target(
+                empire_id, self._identify_front_lines(empire_id)
+            )
+            if self.breakthrough_focus.get(empire_id) is not None:
+                self.breakthrough_timer[empire_id] = config.AI_BREAKTHROUGH_FOCUS_DURATION
         else:
-            return 50
+            self._maintain_breakthrough(empire_id)
+
+        self._try_defense(empire_id)
+        self._try_expansion(empire_id, config.AI_MAX_EXPANSIONS_PER_TICK)
+        self._try_blitz(empire_id)
+        self._release_rear_ships(empire_id)
+
+        if self.blitz_target.get(empire_id) is None:
+            border_targets = [
+                system
+                for system in self.galaxy.systems
+                if system.owner_id is not None and system.owner_id != empire_id
+                and any(
+                    self.galaxy.systems[nid].owner_id == empire_id
+                    for nid in self.galaxy.neighbors.get(system.id, ())
+                )
+            ]
+            if border_targets:
+                strongest = max(border_targets, key=lambda s: s.ships)
+                local_force = sum(
+                    self.galaxy.systems[nid].ships
+                    for nid in self.galaxy.neighbors[strongest.id]
+                    if self.galaxy.systems[nid].owner_id == empire_id
+                )
+                if local_force >= strongest.ships * config.AI_BLITZ_POWER_RATIO:
+                    self.blitz_target[empire_id] = strongest.id
