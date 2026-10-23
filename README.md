@@ -118,4 +118,3 @@ Gameplay and display settings can be adjusted in [`game/config.py`](game/config.
 - Power boosts
 - Better balance
 - Different empire personalities
-- Cleaner galaxy generation

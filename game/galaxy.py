@@ -1007,6 +1007,53 @@ class Galaxy:
         elif new_owner == config.PLAYER_ID:
             self.pending_messages.append(f"{system.name} has joined your empire, abandoning the {empire.name}.")
 
+    def _color_distance(self, first: tuple[int, int, int], second: tuple[int, int, int]) -> float:
+        mean_red = (first[0] + second[0]) / 2.0
+        dr = first[0] - second[0]
+        dg = first[1] - second[1]
+        db = first[2] - second[2]
+        return math.sqrt(
+            (2.0 + mean_red / 256.0) * dr * dr
+            + 4.0 * dg * dg
+            + (2.0 + (255.0 - mean_red) / 256.0) * db * db
+        )
+
+    def _pick_rebel_color(self) -> tuple[int, int, int]:
+        taken = [empire.color for empire in self.empires]
+        taken.append(config.NEUTRAL_COLOR)
+
+        def min_distance(color: tuple[int, int, int]) -> float:
+            return min(self._color_distance(color, other) for other in taken)
+
+        palette = list(config.REBEL_COLORS)
+        self.rng.shuffle(palette)
+        best_palette: tuple[float, tuple[int, int, int]] | None = None
+        for color in palette:
+            distance = min_distance(color)
+            if distance >= config.REBEL_COLOR_MIN_DISTANCE:
+                return color
+            if best_palette is None or distance > best_palette[0]:
+                best_palette = (distance, color)
+
+        best_random: tuple[float, tuple[int, int, int]] | None = None
+        for _ in range(64):
+            color = (
+                self.rng.randint(60, 255),
+                self.rng.randint(60, 255),
+                self.rng.randint(60, 255),
+            )
+            distance = min_distance(color)
+            if distance >= config.REBEL_COLOR_MIN_DISTANCE:
+                return color
+            if best_random is None or distance > best_random[0]:
+                best_random = (distance, color)
+
+        if best_random is not None and best_random[0] > (best_palette[0] if best_palette else 0.0):
+            return best_random[1]
+        if best_palette is not None:
+            return best_palette[1]
+        return (128, 128, 128)
+
     def _spark_revolt(self, empire: Empire, spark: StarSystem, candidates: list[StarSystem]) -> None:
         defectors: dict[int, StarSystem] = {spark.id: spark}
         committed: set[int] = {spark.id}
@@ -1069,7 +1116,7 @@ class Galaxy:
                 return
 
         suffix = self.rng.choice(config.REBEL_EMPIRE_SUFFIXES)
-        color = config.REBEL_COLORS[self.next_empire_id % len(config.REBEL_COLORS)]
+        color = self._pick_rebel_color()
         rebel = Empire(
             id=self.next_empire_id,
             name=f"{spark.name} {suffix}",
