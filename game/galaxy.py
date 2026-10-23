@@ -338,21 +338,26 @@ class Galaxy:
         fourth_orientation = orientation(third, fourth, second)
         return first_orientation * second_orientation < 0 and third_orientation * fourth_orientation < 0
 
+    @staticmethod
+    def _unpack_empire(entry: list) -> tuple[str, tuple[int, int, int], int]:
+        missiles = entry[2] if len(entry) > 2 else config.NUCLEAR_MISSILES_PER_EMPIRE
+        return entry[0], entry[1], missiles
+
     def _create_empires(self) -> None:
         chosen = config.PLAYER_EMPIRE_INDEX % len(config.EMPIRES)
         player_slot = min(chosen, config.EMPIRE_COUNT - 1)
         for empire_id in range(config.EMPIRE_COUNT):
             if empire_id == player_slot:
-                name, color = config.EMPIRES[chosen]
+                name, color, missiles = self._unpack_empire(config.EMPIRES[chosen])
             else:
-                name, color = config.EMPIRES[empire_id]
+                name, color, missiles = self._unpack_empire(config.EMPIRES[empire_id])
             self.empires.append(
                 Empire(
                     id=empire_id,
                     name=name,
                     color=color,
                     is_player=(empire_id == player_slot),
-                    missiles_remaining=config.NUCLEAR_MISSILES_PER_EMPIRE,
+                    missiles_remaining=missiles,
                 )
             )
         config.PLAYER_ID = player_slot

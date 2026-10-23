@@ -252,16 +252,16 @@ DIFFICULTY_PRESETS = {
 DEFAULT_DIFFICULTY_INDEX = 1
 
 EMPIRES = [
-    ["Terran Empire", (70, 170, 255)],
-    ["Crimson Dominion", (240, 80, 80)],
-    ["Emerald Empire", (90, 215, 125)],
-    ["Hand of the Void", (0, 0, 0)],
-    ["Solar Ascendancy", (245, 185, 65)],
-    ["Violet Directorate", (185, 105, 245)],
-    ["Rose Republic", (240, 110, 200)],
-    ["Cyan League", (80, 220, 220)],
-    ["Ember Coalition", (245, 135, 70)],
-    ["Sons of Purity", (255, 255, 255)],
+    ["Terran Empire", (70, 170, 255), 3],
+    ["Crimson Dominion", (240, 80, 80), 6],
+    ["Emerald Empire", (90, 215, 125), 1],
+    ["Hand of the Void", (0, 0, 0), 5],
+    ["Solar Ascendancy", (245, 185, 65), 2],
+    ["Violet Directorate", (185, 105, 245), 3],
+    ["Rose Republic", (240, 110, 200), 2],
+    ["Cyan League", (80, 220, 220), 2],
+    ["Ember Coalition", (245, 135, 70), 3],
+    ["Sons of Purity", (255, 255, 255), 5],
 ]
 
 EMPIRE_LORE = {
