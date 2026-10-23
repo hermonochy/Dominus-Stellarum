@@ -170,6 +170,41 @@ NUCLEAR_SPITE_SYSTEM_THRESHOLD = 2
 NUCLEAR_PRODUCTION_DAMAGE = 0.5
 NUCLEAR_PRODUCTION_TARGET_WEIGHT = 150.0
 
+HAPPINESS_MAX = 100.0
+DEFAULT_HAPPINESS = 50.0
+HAPPINESS_PEACETIME_RECOVERY = 0.5
+CASUALTY_WINDOW = 120.0
+CASUALTY_UNREST_FACTOR = 0.8
+SYSTEM_CAPTURE_HAPPINESS_GAIN = 2.0
+NUKE_LAUNCHER_HAPPINESS_COST = 12.0
+NUKE_VICTIM_HAPPINESS_COST = 20.0
+HAPPINESS_REBELLION_THRESHOLD = 40.0
+
+REBELLION_CHECK_INTERVAL = 10.0
+REBELLION_BASE_CHANCE = 0.1
+REBELLION_SHIP_SCALE = 20.0
+BETRAYAL_WEIGHT = 0.4
+REVOLT_SECTOR_RADIUS = 350.0
+REVOLT_SPREAD_CHANCE = 0.5
+REVOLT_SPREAD_SHIP_LIMIT = 15.0
+MAX_REBEL_EMPIRES = 8
+REBEL_HAPPINESS = 65.0
+REBEL_EMPIRE_SUFFIXES = [
+    "Free State",
+    "Revolutionary Council",
+    "Independence League",
+    "Liberation Front",
+    "Sovereign Worlds",
+]
+REBEL_COLORS = [
+    (205, 205, 220),
+    (175, 120, 200),
+    (200, 150, 90),
+    (90, 185, 200),
+    (215, 110, 135),
+    (140, 200, 120),
+]
+
 EXPLOSION_DURATION = 2.0
 SHAKE_DURATION = 1.5
 SHAKE_INTENSITY = 14
@@ -252,16 +287,16 @@ DIFFICULTY_PRESETS = {
 DEFAULT_DIFFICULTY_INDEX = 1
 
 EMPIRES = [
-    ["Terran Empire", (70, 170, 255), 4],
-    ["Crimson Dominion", (240, 80, 80), 10],
-    ["Emerald Empire", (90, 215, 125), 2],
-    ["Hand of the Void", (0, 0, 0), 8],
-    ["Solar Ascendancy", (245, 185, 65), 2],
-    ["Violet Directorate", (185, 105, 245), 4],
-    ["Rose Republic", (240, 110, 200), 2],
-    ["Cyan League", (80, 220, 220), 2],
-    ["Ember Coalition", (245, 135, 70), 2],
-    ["Sons of Purity", (255, 255, 255), 6],
+    ["Terran Empire", (70, 170, 255), 4, 70],
+    ["Crimson Dominion", (240, 80, 80), 10, 35],
+    ["Emerald Empire", (90, 215, 125), 2, 85],
+    ["Hand of the Void", (0, 0, 0), 8, 95],
+    ["Solar Ascendancy", (245, 185, 65), 2, 60],
+    ["Violet Directorate", (185, 105, 245), 4, 50],
+    ["Rose Republic", (240, 110, 200), 2, 80],
+    ["Cyan League", (80, 220, 220), 2, 75],
+    ["Ember Coalition", (245, 135, 70), 2, 40],
+    ["Sons of Purity", (255, 255, 255), 6, 25],
 ]
 
 EMPIRE_LORE = {

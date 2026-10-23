@@ -1,5 +1,4 @@
 # popup.py
-# popup.py
 import pygame
 
 from . import config
@@ -128,6 +127,17 @@ class EmpirePopup:
             self._cache[key] = overlay
         return overlay
 
+    def _happiness_word(self, happiness: float) -> str:
+        if happiness >= 75.0:
+            return "joyful"
+        if happiness >= 60.0:
+            return "content"
+        if happiness >= config.HAPPINESS_REBELLION_THRESHOLD:
+            return "restless"
+        if happiness >= 20.0:
+            return "riven by unrest"
+        return "on the brink of revolt"
+
     def draw(self, screen):
         if not self.visible or self.empire is None or self.galaxy is None:
             return
@@ -190,7 +200,22 @@ class EmpirePopup:
             config.TEXT,
         )
         screen.blit(stats, (content_left, cursor_y))
-        cursor_y += stats.get_height() + int(14 * scale)
+        cursor_y += stats.get_height() + int(6 * scale)
+
+        mood_color = (
+            (120, 230, 160) if empire.happiness >= 75.0
+            else config.SELECTION_COLOR if empire.happiness >= 60.0
+            else (245, 185, 65) if empire.happiness >= config.HAPPINESS_REBELLION_THRESHOLD
+            else (245, 135, 70) if empire.happiness >= 20.0
+            else (240, 80, 80)
+        )
+        mood = stats_font.render(
+            f"Citizen happiness: {int(empire.happiness)}% ({self._happiness_word(empire.happiness)})",
+            True,
+            mood_color,
+        )
+        screen.blit(mood, (content_left, cursor_y))
+        cursor_y += mood.get_height() + int(14 * scale)
 
         heading = self._get_text("INTELLIGENCE REPORT", small_size, config.SELECTION_COLOR)
         screen.blit(heading, (content_left, cursor_y))

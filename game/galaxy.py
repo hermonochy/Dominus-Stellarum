@@ -30,6 +30,10 @@ class Galaxy:
         self.nuclear_cooldown = 0.0
         self.nuked_grace: dict[int, float] = {}
         self.pending_messages: list[str] = []
+        self.rebellion_timer = 0.0
+        self.next_empire_id = 0
+        self._casualty_accum: dict[int, float] = {}
+        self._prev_owners: dict[int, Optional[int]] = {}
 
         self.grid_cell_size = config.COMBAT_RANGE * 2.0
         self.spatial_grid: dict[tuple[int, int], list[int]] = {}
@@ -55,6 +59,9 @@ class Galaxy:
         self.nuclear_cooldown = 0.0
         self.nuked_grace.clear()
         self.pending_messages.clear()
+        self.rebellion_timer = 0.0
+        self.next_empire_id = 0
+        self._casualty_accum.clear()
         self.spatial_grid.clear()
         self.path_cache.clear()
         self._ship_count_cache = None
@@ -62,6 +69,7 @@ class Galaxy:
         self._create_empires()
         self._place_empires()
         self._build_spatial_grid()
+        self._prev_owners = {system.id: system.owner_id for system in self.systems}
 
     def update(self, dt: float) -> None:
         self._ship_count_cache = None
@@ -77,6 +85,9 @@ class Galaxy:
         self._produce_ships(dt)
         self._update_fleets(dt)
         self._update_standoff_combat(dt)
+        self._resolve_captures()
+        self._update_happiness(dt)
+        self._update_rebellions(dt)
         self._update_empire_status()
 
     def _create_systems(self) -> None:
@@ -339,18 +350,19 @@ class Galaxy:
         return first_orientation * second_orientation < 0 and third_orientation * fourth_orientation < 0
 
     @staticmethod
-    def _unpack_empire(entry: list) -> tuple[str, tuple[int, int, int], int]:
+    def _unpack_empire(entry: list) -> tuple[str, tuple[int, int, int], int, float]:
         missiles = entry[2] if len(entry) > 2 else config.NUCLEAR_MISSILES_PER_EMPIRE
-        return entry[0], entry[1], missiles
+        happiness = entry[3] if len(entry) > 3 else config.DEFAULT_HAPPINESS
+        return entry[0], entry[1], missiles, float(happiness)
 
     def _create_empires(self) -> None:
         chosen = config.PLAYER_EMPIRE_INDEX % len(config.EMPIRES)
         player_slot = min(chosen, config.EMPIRE_COUNT - 1)
         for empire_id in range(config.EMPIRE_COUNT):
             if empire_id == player_slot:
-                name, color, missiles = self._unpack_empire(config.EMPIRES[chosen])
+                name, color, missiles, happiness = self._unpack_empire(config.EMPIRES[chosen])
             else:
-                name, color, missiles = self._unpack_empire(config.EMPIRES[empire_id])
+                name, color, missiles, happiness = self._unpack_empire(config.EMPIRES[empire_id])
             self.empires.append(
                 Empire(
                     id=empire_id,
@@ -358,8 +370,10 @@ class Galaxy:
                     color=color,
                     is_player=(empire_id == player_slot),
                     missiles_remaining=missiles,
+                    happiness=happiness,
                 )
             )
+        self.next_empire_id = len(self.empires)
         config.PLAYER_ID = player_slot
 
     def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
@@ -436,6 +450,7 @@ class Galaxy:
             best = max(candidates, key=min_dist_to_placed)
             place(best, empire_id)
             empire_id += 1
+
     def _empire_production_efficiency(self, owned_count: int, total_systems: int) -> float:
         if total_systems <= 0:
             return 1.0
@@ -522,20 +537,15 @@ class Galaxy:
         empire = self.empires[config.PLAYER_ID]
         if empire.missiles_remaining <= 0:
             return False, "You have no missiles remaining."
-
         if self.nuclear_cooldown > 0.0:
             return False, f"Nuclear launch cooldown: {int(self.nuclear_cooldown)}s remaining."
-
         target = self.systems[target_id]
         if target.owner_id == config.PLAYER_ID:
             return False, "You cannot nuke your own system."
-
         if target.id in self.nuked_grace:
             return False, f"{target.name} was recently struck — launch refused."
-
         if self.missile_inbound(target_id):
             return False, "A missile is already inbound to that system."
-
         origin = min(
             (system for system in self.systems
              if system.owner_id == config.PLAYER_ID),
@@ -544,12 +554,11 @@ class Galaxy:
         )
         if origin is None:
             return False, "You no longer control any launch site."
-
         route = self.shortest_path(origin.id, target_id)
         if route is None or len(route) < 2:
             return False, "No route exists from your territory to that system."
-
         empire.missiles_remaining -= 1
+        empire.happiness = max(0.0, empire.happiness - config.NUKE_LAUNCHER_HAPPINESS_COST)
         self.nuclear_cooldown = config.NUCLEAR_GLOBAL_COOLDOWN
         self.fleets.append(
             Fleet(
@@ -585,6 +594,7 @@ class Galaxy:
         if target.owner_id == config.PLAYER_ID:
             self.pending_messages.append(f"Nuclear missile inbound to {target.name}!")
         empire.missiles_remaining -= 1
+        empire.happiness = max(0.0, empire.happiness - config.NUKE_LAUNCHER_HAPPINESS_COST)
         self.nuclear_cooldown = config.NUCLEAR_GLOBAL_COOLDOWN
         self.fleets.append(
             Fleet(
@@ -603,12 +613,16 @@ class Galaxy:
         return True
 
     def _apply_nuclear_strike(self, node: StarSystem) -> None:
+        if node.owner_id is None:
+            return
+        empire = self.empires[node.owner_id]
+        empire.happiness = max(0.0, empire.happiness - config.NUKE_VICTIM_HAPPINESS_COST)
         if node.ships > 0.0:
             loss = node.ships
             node.ships = 0.0
+            self._record_casualties(node.owner_id, loss)
             if node.owner_id == config.PLAYER_ID and loss >= 1.0:
                 self.pending_messages.append(f"All ships lost at {node.name}!")
-
         production_damage = config.NUCLEAR_PRODUCTION_DAMAGE
         if production_damage > 0.0:
             node.production *= (1.0 - production_damage)
@@ -621,10 +635,8 @@ class Galaxy:
             distance = other.pos.distance_to(system.pos)
             if distance < config.NUCLEAR_EFFECT_RADIUS:
                 affected.append(other)
-
         for node in affected:
             self._apply_nuclear_strike(node)
-
         self.nuked_grace[system.id] = config.NUCLEAR_NUKED_GRACE
         self.explosions.append(
             Explosion(
@@ -649,11 +661,9 @@ class Galaxy:
             return (source_id,)
         if source_id not in self.neighbors or target_id not in self.neighbors:
             return None
-
         cache_key = (source_id, target_id)
         if cache_key in self.path_cache:
             return self.path_cache[cache_key]
-
         queue: list[int] = [source_id]
         previous: dict[int, Optional[int]] = {source_id: None}
         while queue:
@@ -673,7 +683,6 @@ class Galaxy:
                     self.path_cache[cache_key] = result
                     return result
                 queue.append(neighbor)
-
         self.path_cache[cache_key] = None
         return None
 
@@ -748,15 +757,48 @@ class Galaxy:
         target = self.systems[fleet.target_id]
         return source.pos.lerp(target.pos, min(1.0, fleet.progress))
 
+    def _record_casualties(self, empire_id: int, ships: float) -> None:
+        if empire_id is None or ships <= 0.0:
+            return
+        self._casualty_accum[empire_id] = self._casualty_accum.get(empire_id, 0.0) + ships
+
+    def _snapshot_forces(self) -> tuple[dict[int, float], dict[int, float]]:
+        system_counts: dict[int, float] = {}
+        for system in self.systems:
+            if system.owner_id is not None:
+                system_counts[system.owner_id] = system_counts.get(system.owner_id, 0.0) + system.ships
+        fleet_counts: dict[int, float] = {}
+        for fleet in self.fleets:
+            fleet_counts[fleet.owner_id] = fleet_counts.get(fleet.owner_id, 0.0) + fleet.ships
+        return system_counts, fleet_counts
+
+    def _resolve_casualties(self, before: tuple[dict[int, float], dict[int, float]]) -> None:
+        system_before, fleet_before = before
+        system_after, fleet_after = self._snapshot_forces()
+        for empire in self.empires:
+            prior = system_before.get(empire.id, 0.0) + fleet_before.get(empire.id, 0.0)
+            after = system_after.get(empire.id, 0.0) + fleet_after.get(empire.id, 0.0)
+            lost = prior - after
+            if lost > 0.0:
+                self._record_casualties(empire.id, lost)
+
+    def _resolve_captures(self) -> None:
+        for system in self.systems:
+            previous = self._prev_owners.get(system.id, system.owner_id)
+            if system.owner_id is None or system.owner_id == previous:
+                continue
+            empire = self.empires[system.owner_id]
+            empire.happiness = min(config.HAPPINESS_MAX, empire.happiness + config.SYSTEM_CAPTURE_HAPPINESS_GAIN)
+        self._prev_owners = {system.id: system.owner_id for system in self.systems}
+
     def _update_fleets(self, dt: float) -> None:
         arrived: list[Fleet] = []
         detonations: list[Fleet] = []
         surviving_fleets: list[Fleet] = []
-
+        forces_before = self._snapshot_forces()
         for shot in self.combat_shots:
             shot.lifetime -= dt
         self.combat_shots = [shot for shot in self.combat_shots if shot.lifetime > 0.0]
-
         for fleet in self.fleets:
             speed = config.FLEET_SPEED
             if fleet.is_missile:
@@ -767,7 +809,6 @@ class Galaxy:
             next_system = self.systems[next_id]
             segment_distance = current_system.pos.distance_to(next_system.pos)
             fleet.segment_progress += (speed * dt) / max(1.0, segment_distance)
-
             if fleet.segment_progress <= 1.0:
                 fleet.position = current_system.pos.lerp(next_system.pos, min(1.0, fleet.segment_progress))
             else:
@@ -793,21 +834,17 @@ class Galaxy:
                         else:
                             next_system.owner_id = fleet.owner_id
                             next_system.ships = 0.0
-
             if fleet.ships > config.COMBAT_MIN_SHIPS:
                 surviving_fleets.append(fleet)
-
         self.fleets = surviving_fleets
-
         for fleet in arrived:
             target = self.systems[fleet.target_id]
             resolve_fleet_arrival(fleet, target)
-
         for fleet in detonations:
             self._detonate(self.systems[fleet.target_id])
-
         if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
+        self._resolve_casualties(forces_before)
 
     def _build_fleet_grid(self) -> dict[tuple[int, int], list[Fleet]]:
         cell_size = self.grid_cell_size
@@ -832,7 +869,6 @@ class Galaxy:
         col_max = int((pos.x + radius) // cell_size)
         row_min = int((pos.y - radius) // cell_size)
         row_max = int((pos.y + radius) // cell_size)
-
         result: list[Fleet] = []
         for col in range(col_min, col_max + 1):
             for row in range(row_min, row_max + 1):
@@ -845,6 +881,7 @@ class Galaxy:
         return result
 
     def _update_standoff_combat(self, dt: float) -> None:
+        forces_before = self._snapshot_forces()
         for system in self.systems:
             if system.owner_id is None or system.ships <= config.COMBAT_MIN_SHIPS:
                 continue
@@ -860,10 +897,8 @@ class Galaxy:
                 shots = fire_at_target(system, other, system.pos, other.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, shooter_color, self.rng, True)
                 self.combat_shots.extend(shots)
                 self.active_combat[other.id] = self.active_combat.get(other.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
-
         fleet_grid = self._build_fleet_grid()
         seen_pairs: set[tuple[int, int]] = set()
-
         for fleet in self.fleets:
             if fleet.is_missile:
                 continue
@@ -893,10 +928,169 @@ class Galaxy:
                 shots = fire_at_target(fleet, other, fleet.position, other.position, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng)
                 shots += fire_at_target(other, fleet, other.position, fleet.position, dt, config.FLEET_VS_FLEET_PER_SHIP, self.empires[other.owner_id].color, self.rng)
                 self.combat_shots.extend(shots)
-
         self.fleets = [f for f in self.fleets if f.is_missile or f.ships > config.COMBAT_MIN_SHIPS]
         if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
+        self._resolve_casualties(forces_before)
+
+    def _update_happiness(self, dt: float) -> None:
+        decay = math.exp(-dt / config.CASUALTY_WINDOW)
+        for empire in self.empires:
+            if not empire.alive:
+                continue
+            self._casualty_accum[empire.id] = self._casualty_accum.get(empire.id, 0.0) * decay
+        for empire in self.empires:
+            if not empire.alive:
+                continue
+            fleet_size = self.empire_ship_count(empire.id)
+            if fleet_size < 1.0:
+                continue
+            metric = self._casualty_accum.get(empire.id, 0.0) / fleet_size
+            if metric < 0.01:
+                empire.happiness += config.HAPPINESS_PEACETIME_RECOVERY * dt
+            elif metric > 0.08:
+                empire.happiness -= config.CASUALTY_UNREST_FACTOR * metric * dt
+            empire.happiness = max(0.0, min(config.HAPPINESS_MAX, empire.happiness))
+
+    def _update_rebellions(self, dt: float) -> None:
+        self.rebellion_timer += dt
+        if self.rebellion_timer < config.REBELLION_CHECK_INTERVAL:
+            return
+        self.rebellion_timer -= config.REBELLION_CHECK_INTERVAL
+        for empire in list(self.empires):
+            if not empire.alive:
+                continue
+            if empire.happiness >= config.HAPPINESS_REBELLION_THRESHOLD:
+                continue
+            self._check_empire_unrest(empire)
+
+    def _check_empire_unrest(self, empire: Empire) -> None:
+        severity = (config.HAPPINESS_REBELLION_THRESHOLD - empire.happiness) / config.HAPPINESS_REBELLION_THRESHOLD
+        severity = max(0.0, min(1.0, severity))
+        owned = [system for system in self.systems if system.owner_id == empire.id]
+        if len(owned) <= 1:
+            return
+        candidates: list[StarSystem] = []
+        for system in owned:
+            ship_factor = config.REBELLION_SHIP_SCALE / (config.REBELLION_SHIP_SCALE + max(0.0, system.ships))
+            chance = config.REBELLION_BASE_CHANCE * severity * severity * ship_factor
+            if self.rng.random() < chance:
+                candidates.append(system)
+        if not candidates:
+            return
+        spark = self.rng.choice(candidates)
+        rebel_empires = [e for e in self.empires if e.is_rebel and e.alive]
+        can_rebel = len(rebel_empires) < config.MAX_REBEL_EMPIRES
+        neighbours = [
+            self.systems[nid]
+            for nid in self.neighbors[spark.id]
+            if self.systems[nid].owner_id is not None
+            and self.systems[nid].owner_id != empire.id
+        ]
+        betray_chance = config.BETRAYAL_WEIGHT if neighbours else 0.0
+        if not can_rebel:
+            betray_chance = 1.0
+        if neighbours and self.rng.random() < betray_chance:
+            self._betray_to_neighbour(empire, spark, neighbours)
+        else:
+            self._spark_revolt(empire, spark, candidates)
+
+    def _betray_to_neighbour(self, empire: Empire, system: StarSystem, neighbours: list[StarSystem]) -> None:
+        def neighbour_weight(node: StarSystem) -> float:
+            return node.ships + self.empires[node.owner_id].happiness
+        best = max(neighbours, key=neighbour_weight)
+        new_owner = best.owner_id
+        system.owner_id = new_owner
+        self.gathering_points.discard(system.id)
+        if empire.is_player:
+            self.pending_messages.append(f"{system.name} has defected to the {self.empires[new_owner].name}!")
+        elif new_owner == config.PLAYER_ID:
+            self.pending_messages.append(f"{system.name} has joined your empire, abandoning the {empire.name}.")
+
+    def _spark_revolt(self, empire: Empire, spark: StarSystem, candidates: list[StarSystem]) -> None:
+        defectors: dict[int, StarSystem] = {spark.id: spark}
+        committed: set[int] = {spark.id}
+        for system in candidates:
+            if system.id == spark.id:
+                continue
+            if system.pos.distance_to(spark.pos) <= config.REVOLT_SECTOR_RADIUS:
+                defectors[system.id] = system
+                committed.add(system.id)
+
+        frontier: set[int] = set(committed)
+        while frontier:
+            next_frontier: set[int] = set()
+            for sid in frontier:
+                for nid in self.neighbors[sid]:
+                    if nid in committed:
+                        continue
+                    system = self.systems[nid]
+                    if system.owner_id != empire.id:
+                        continue
+                    if system.pos.distance_to(spark.pos) > config.REVOLT_SECTOR_RADIUS:
+                        continue
+                    if system.ships > config.REVOLT_SPREAD_SHIP_LIMIT:
+                        continue
+                    if self.rng.random() >= config.REVOLT_SPREAD_CHANCE:
+                        continue
+                    committed.add(nid)
+                    defectors[nid] = system
+                    next_frontier.add(nid)
+            frontier = next_frontier
+
+        owned = [s for s in self.systems if s.owner_id == empire.id]
+        if len(defectors) >= len(owned):
+            keeper = max(owned, key=lambda s: s.ships)
+            defectors.pop(keeper.id, None)
+        defector_list = list(defectors.values())
+        if not defector_list:
+            return
+
+        rebel_empires = [e for e in self.empires if e.is_rebel and e.alive]
+        if len(rebel_empires) >= config.MAX_REBEL_EMPIRES:
+            nearest_rebel = None
+            min_distance = float('inf')
+            for rebel in rebel_empires:
+                rebel_systems = [s for s in self.systems if s.owner_id == rebel.id]
+                if not rebel_systems:
+                    continue
+                closest_dist = min(spark.pos.distance_to(s.pos) for s in rebel_systems)
+                if closest_dist < min_distance:
+                    min_distance = closest_dist
+                    nearest_rebel = rebel
+            if nearest_rebel is not None:
+                for system in defector_list:
+                    system.owner_id = nearest_rebel.id
+                    self.gathering_points.discard(system.id)
+                if empire.is_player:
+                    self.pending_messages.append(
+                        f"{len(defector_list)} systems in your {spark.name} sector have defected to the {nearest_rebel.name}!"
+                    )
+                return
+
+        suffix = self.rng.choice(config.REBEL_EMPIRE_SUFFIXES)
+        color = config.REBEL_COLORS[self.next_empire_id % len(config.REBEL_COLORS)]
+        rebel = Empire(
+            id=self.next_empire_id,
+            name=f"{spark.name} {suffix}",
+            color=color,
+            is_player=False,
+            alive=True,
+            missiles_remaining=0,
+            happiness=config.REBEL_HAPPINESS,
+            is_rebel=True,
+        )
+        self.next_empire_id += 1
+        self.empires.append(rebel)
+
+        for system in defector_list:
+            system.owner_id = rebel.id
+            self.gathering_points.discard(system.id)
+
+        if empire.is_player:
+            self.pending_messages.append(
+                f"{len(defector_list)} systems in the {spark.name} sector have risen in revolt! The {rebel.name} declares independence."
+            )
 
     def _update_empire_status(self) -> None:
         for empire in self.empires:
@@ -977,14 +1171,12 @@ class Galaxy:
         col_max = int((pos.x + radius) // cell_size)
         row_min = int((pos.y - radius) // cell_size)
         row_max = int((pos.y + radius) // cell_size)
-
         nearby_ids: set[int] = set()
         for col in range(col_min, col_max + 1):
             for row in range(row_min, row_max + 1):
                 bucket = self.spatial_grid.get((col, row))
                 if bucket:
                     nearby_ids.update(bucket)
-
         result: list[StarSystem] = []
         for sid in nearby_ids:
             system = self.systems[sid]

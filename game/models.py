@@ -13,6 +13,8 @@ class Empire:
     is_player: bool = False
     alive: bool = True
     missiles_remaining: int = 0
+    happiness: float = 50.0
+    is_rebel: bool = False
 
 
 @dataclass

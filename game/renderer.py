@@ -622,6 +622,17 @@ class Renderer:
             else f"Fleet order: {player.send_count} ships"
         )
 
+    def _happiness_label(self, happiness: float) -> tuple[str, tuple[int, int, int]]:
+        if happiness >= 75.0:
+            return ("joyful", (120, 230, 160))
+        if happiness >= 60.0:
+            return ("content", config.SELECTION_COLOR)
+        if happiness >= config.HAPPINESS_REBELLION_THRESHOLD:
+            return ("restless", (245, 185, 65))
+        if happiness >= 20.0:
+            return ("unrest", (245, 135, 70))
+        return ("revolt imminent", (240, 80, 80))
+
     def _draw_top_bar(self, galaxy, player, paused, speed):
         sw = self.screen.get_width()
         pygame.draw.rect(self.screen, config.PANEL, (0, 0, sw, config.TOP_BAR_HEIGHT))
@@ -634,14 +645,23 @@ class Renderer:
         else:
             status = self.small_font.render(f"{state}   Speed {speed:g}x   {self._fleet_order_label(player)}", True, config.SELECTION_COLOR if galaxy.autopilot else config.MUTED_TEXT)
         self.screen.blit(status, (18, 39))
+        player_empire = galaxy.empires[config.PLAYER_ID]
         player_systems = galaxy.empire_system_count(config.PLAYER_ID)
         player_ships = int(galaxy.empire_ship_count(config.PLAYER_ID))
-        player_missiles = galaxy.empires[config.PLAYER_ID].missiles_remaining
-        stats = self.small_font.render(f"Your systems: {player_systems}    Your ships: {player_ships}    Missiles: {player_missiles}", True, galaxy.empires[config.PLAYER_ID].color)
+        player_missiles = player_empire.missiles_remaining
+        mood, mood_color = self._happiness_label(player_empire.happiness)
+        stats = self.small_font.render(
+            f"Your systems: {player_systems}    Your ships: {player_ships}    Missiles: {player_missiles}",
+            True,
+            player_empire.color,
+        )
         self.screen.blit(stats, stats.get_rect(midtop=(sw // 2, 14)))
-        controls_text = "LMB: select   RMB: send / nuke   N: arm nuke   MMB drag: pan   MMB click: gathering point   Wheel: zoom   1-9: send N ships   F1-F10: send %   Space: pause   +/-: speed   F: fullscreen   R: new game"
-        controls = self.tiny_font.render(controls_text, True, config.MUTED_TEXT)
-        self.screen.blit(controls, controls.get_rect(midtop=(sw // 2, 40)))
+        mood_surface = self.small_font.render(
+            f"Citizens: {int(player_empire.happiness)}% ({mood})",
+            True,
+            mood_color,
+        )
+        self.screen.blit(mood_surface, mood_surface.get_rect(midtop=(sw // 2, 40)))
 
     def _draw_bottom_bar(self, galaxy, player):
         sh = self.screen.get_height()
@@ -667,7 +687,7 @@ class Renderer:
         pad_bottom = 4
         available = bar_height - pad_top - pad_bottom
 
-        empire_count = len(galaxy.empires)
+        empire_count = sum(1 for empire in galaxy.empires if empire.alive)
         empire_row_h = max(8, available // (empire_count + 1))
 
         if self._bottom_font_key != (empire_row_h, empire_count):
@@ -716,7 +736,7 @@ class Renderer:
         cursor_y = y + pad_top
 
         ranked = sorted(
-            galaxy.empires,
+            (empire for empire in galaxy.empires if empire.alive),
             key=lambda empire: galaxy.empire_strength(empire.id),
             reverse=True,
         )
@@ -731,12 +751,13 @@ class Renderer:
         for rank, empire in enumerate(ranked, start=1):
             systems = galaxy.empire_system_count(empire.id)
             ships = int(galaxy.empire_ship_count(empire.id))
-            color = empire.color if empire.alive else config.MUTED_TEXT
+            color = empire.color
             marker = "YOU" if empire.is_player else "AI"
-            dead = "" if empire.alive else " (dead)"
             autopilot_tag = " [AUTO]" if empire.is_player and galaxy.autopilot else ""
+            mood, mood_color = self._happiness_label(empire.happiness)
+            mood_tag = "" if empire.is_player else f"  ({mood})"
             missiles = f"  {empire.missiles_remaining} nukes" if empire.missiles_remaining > 0 else ""
-            text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships{missiles}{dead}"
+            text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships{missiles}  {int(empire.happiness)}%{mood_tag}"
             surface = row_font.render(text, True, color)
             self.screen.blit(surface, surface.get_rect(right=right_edge, top=cursor_y))
             row_rect = pygame.Rect(right_edge - hit_width, cursor_y, hit_width, row_height)
