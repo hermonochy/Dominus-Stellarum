@@ -19,6 +19,7 @@ class PlayerController:
         )
         self.send_count = 1
         self.use_percent = True
+        self.nuke_targeting = False
 
         self.message = ""
         self.message_timer = 0.0
@@ -35,6 +36,7 @@ class PlayerController:
         )
         self.send_count = 1
         self.use_percent = True
+        self.nuke_targeting = False
         self.message = ""
         self.message_timer = 0.0
 
@@ -155,6 +157,14 @@ class PlayerController:
         position: tuple[int, int],
         camera: dict,
     ) -> None:
+        if self.nuke_targeting:
+            world_pos = self._convert_screen_to_world(position, camera)
+            target = self.galaxy.system_at(world_pos)
+            if target is None:
+                return
+            self._fire_nuke(target)
+            return
+
         if self.selected_system_id is None:
             self._set_message(
                 "Select one of your systems first."
@@ -231,6 +241,35 @@ class PlayerController:
             f"({order_desc}, {hops} hyperlane"
             f"{'' if hops == 1 else 's'})"
         )
+
+    def toggle_nuke_mode(self) -> None:
+        if self.nuke_targeting:
+            self.nuke_targeting = False
+            self._set_message("Nuclear strike disarmed.")
+            return
+
+        missiles = self.galaxy.empires[config.PLAYER_ID].missiles_remaining
+        if missiles <= 0:
+            self.nuke_targeting = False
+            self._set_message("You have no missiles remaining.")
+            return
+
+        if self.galaxy.nuclear_cooldown > 0.0:
+            self._set_message(
+                f"Nuclear launch cooldown: {int(self.galaxy.nuclear_cooldown)}s remaining."
+            )
+            return
+
+        self.nuke_targeting = True
+        self._set_message(
+            f"Nuclear strike armed ({missiles} remaining). Right-click a target."
+        )
+
+    def _fire_nuke(self, target) -> None:
+        success, message = self.galaxy.launch_player_nuclear(target.id)
+        self._set_message(message)
+        if success:
+            self.nuke_targeting = False
 
     def _validate_selection(self) -> None:
         if self.selected_system_id is None:

@@ -153,9 +153,9 @@ AI_MASSING_FOCUS_DURATION = 20.0
 AI_MASSING_STAGE_RETENTION = 25
 AI_MASSING_LAUNCH_PERCENT = 75
 
-NUCLEAR_MISSILES_PER_EMPIRE = 5
-NUCLEAR_DOMINANCE_RATIO = 4.0
-NUCLEAR_SHARE_THRESHOLD = 0.45
+NUCLEAR_DOMINANCE_RATIO = 2.0
+NUCLEAR_DOMINANCE_ABS_GAP = 500.0
+NUCLEAR_MISSILES_PER_EMPIRE = 3
 NUCLEAR_MIN_RUNAWAY_START_MULT = 10.0
 NUCLEAR_LAUNCH_CHANCE = 0.01
 NUCLEAR_DELIBERATION_TIME = 30.0
@@ -196,8 +196,8 @@ DIFFICULTY_PRESETS = {
         "AI_MASSING_CHANCE": 0.01,
         "AI_MASSING_MIN_SURPLUS": 150,
         "AI_MASSING_TARGET_RATIO": 3.5,
-        "NUCLEAR_LAUNCH_CHANCE": 0.02,
-        "NUCLEAR_DOMINANCE_RATIO": 3.0,
+        "NUCLEAR_LAUNCH_CHANCE": 0.01,
+        "NUCLEAR_DOMINANCE_RATIO": 10.0,
     },
     "Normal": {
         "AI_THINK_INTERVAL": 1.0,
@@ -212,8 +212,8 @@ DIFFICULTY_PRESETS = {
         "AI_MASSING_CHANCE": 0.03,
         "AI_MASSING_MIN_SURPLUS": 80,
         "AI_MASSING_TARGET_RATIO": 2.5,
-        "NUCLEAR_LAUNCH_CHANCE": 0.05,
-        "NUCLEAR_DOMINANCE_RATIO": 2.0,
+        "NUCLEAR_LAUNCH_CHANCE": 0.02,
+        "NUCLEAR_DOMINANCE_RATIO": 5.0,
     },
     "Hard": {
         "AI_THINK_INTERVAL": 0.75,
@@ -228,8 +228,8 @@ DIFFICULTY_PRESETS = {
         "AI_MASSING_CHANCE": 0.05,
         "AI_MASSING_MIN_SURPLUS": 60,
         "AI_MASSING_TARGET_RATIO": 2.0,
-        "NUCLEAR_LAUNCH_CHANCE": 0.1,
-        "NUCLEAR_DOMINANCE_RATIO": 1.5,
+        "NUCLEAR_LAUNCH_CHANCE": 0.05,
+        "NUCLEAR_DOMINANCE_RATIO": 3,
     },
     "Brutal": {
         "AI_THINK_INTERVAL": 0.5,
@@ -244,24 +244,24 @@ DIFFICULTY_PRESETS = {
         "AI_MASSING_CHANCE": 0.07,
         "AI_MASSING_MIN_SURPLUS": 50,
         "AI_MASSING_TARGET_RATIO": 1.8,
-        "NUCLEAR_LAUNCH_CHANCE": 0.15,
-        "NUCLEAR_DOMINANCE_RATIO": 1.2,
+        "NUCLEAR_LAUNCH_CHANCE": 0.1,
+        "NUCLEAR_DOMINANCE_RATIO": 1,
     },
 }
 
 DEFAULT_DIFFICULTY_INDEX = 1
 
 EMPIRES = [
-    ["Terran Empire", (70, 170, 255), 3],
-    ["Crimson Dominion", (240, 80, 80), 6],
-    ["Emerald Empire", (90, 215, 125), 1],
-    ["Hand of the Void", (0, 0, 0), 5],
+    ["Terran Empire", (70, 170, 255), 4],
+    ["Crimson Dominion", (240, 80, 80), 10],
+    ["Emerald Empire", (90, 215, 125), 2],
+    ["Hand of the Void", (0, 0, 0), 8],
     ["Solar Ascendancy", (245, 185, 65), 2],
-    ["Violet Directorate", (185, 105, 245), 3],
+    ["Violet Directorate", (185, 105, 245), 4],
     ["Rose Republic", (240, 110, 200), 2],
     ["Cyan League", (80, 220, 220), 2],
-    ["Ember Coalition", (245, 135, 70), 3],
-    ["Sons of Purity", (255, 255, 255), 5],
+    ["Ember Coalition", (245, 135, 70), 2],
+    ["Sons of Purity", (255, 255, 255), 6],
 ]
 
 EMPIRE_LORE = {

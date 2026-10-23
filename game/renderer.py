@@ -55,8 +55,6 @@ class Renderer:
 
     def update_shake(self, dt: float) -> None:
         self.shake_timer = max(0.0, self.shake_timer - dt)
-        for explosion in self.galaxy.explosions if hasattr(self, "galaxy") else []:
-            pass
         self.warn_flash_phase += dt
 
     def trigger_shake(self) -> None:
@@ -96,6 +94,7 @@ class Renderer:
         self._draw_combat_shots(galaxy, shake_camera)
         self._draw_systems(galaxy, player, shake_camera, valid_targets)
         self._draw_missile_warnings(galaxy, shake_camera)
+        self._draw_nuke_target_preview(galaxy, player, shake_camera)
         self._draw_top_bar(galaxy, player, paused, speed)
         self._draw_bottom_bar(galaxy, player)
         self._draw_camera_info(camera)
@@ -454,6 +453,52 @@ class Renderer:
         self.screen.blit(bg, (bg_rect.x - 12, bg_rect.y - 5))
         self.screen.blit(banner, bg_rect)
 
+    def _draw_nuke_target_preview(self, galaxy, player, camera) -> None:
+        if not getattr(player, "nuke_targeting", False):
+            return
+        hovered_id = player.hovered_system_id
+        if hovered_id is None:
+            return
+        system = galaxy.systems[hovered_id]
+
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        sx = int(system.pos.x * zoom + offset_x)
+        sy = int(system.pos.y * zoom + offset_y)
+        radius = int(config.NUCLEAR_EFFECT_RADIUS * zoom)
+
+        pulse = (math.sin(self.warn_flash_phase * 6.0) + 1.0) * 0.5
+        color = (255, 80 + int(60 * pulse), 60)
+
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+        if sx < -radius - 50 or sx > sw + radius + 50:
+            return
+        if sy < -radius - 50 or sy > sh + radius + 50:
+            return
+
+        if radius > 2:
+            pygame.draw.circle(self.screen, color, (sx, sy), radius, 3)
+
+            affected = sum(
+                1
+                for other in galaxy.systems
+                if other.pos.distance_to(system.pos) < config.NUCLEAR_EFFECT_RADIUS
+            )
+            label = self.small_font.render(
+                f"{affected} system{'s' if affected != 1 else ''} in blast",
+                True,
+                color,
+            )
+            bg = pygame.Surface((label.get_width() + 8, label.get_height() + 4), pygame.SRCALPHA)
+            bg.fill((0, 0, 0, 170))
+            ly = sy - radius - label.get_height() - 12
+            if ly < config.TOP_BAR_HEIGHT + 4:
+                ly = sy + radius + 8
+            self.screen.blit(bg, (sx - label.get_width() // 2 - 4, ly - 2))
+            self.screen.blit(label, (sx - label.get_width() // 2, ly))
+
     def _draw_combat_shots(self, galaxy, camera):
         zoom = camera['zoom']
         offset_x = camera['offset_x']
@@ -583,14 +628,18 @@ class Renderer:
         state = "AUTOPILOT" if galaxy.autopilot else ("PAUSED" if paused or self.popup.visible else "RUNNING")
         title = self.font.render("DOMINUS STELLARUM", True, config.TEXT)
         self.screen.blit(title, (18, 12))
-        status = self.small_font.render(f"{state}   Speed {speed:g}x   {self._fleet_order_label(player)}", True, config.SELECTION_COLOR if galaxy.autopilot else config.MUTED_TEXT)
+        if not galaxy.autopilot and getattr(player, "nuke_targeting", False):
+            status_text = f"{state}   Speed {speed:g}x   NUCLEAR STRIKE ARMED — right-click target, N to disarm"
+            status = self.small_font.render(status_text, True, (255, 120, 90))
+        else:
+            status = self.small_font.render(f"{state}   Speed {speed:g}x   {self._fleet_order_label(player)}", True, config.SELECTION_COLOR if galaxy.autopilot else config.MUTED_TEXT)
         self.screen.blit(status, (18, 39))
         player_systems = galaxy.empire_system_count(config.PLAYER_ID)
         player_ships = int(galaxy.empire_ship_count(config.PLAYER_ID))
         player_missiles = galaxy.empires[config.PLAYER_ID].missiles_remaining
         stats = self.small_font.render(f"Your systems: {player_systems}    Your ships: {player_ships}    Missiles: {player_missiles}", True, galaxy.empires[config.PLAYER_ID].color)
         self.screen.blit(stats, stats.get_rect(midtop=(sw // 2, 14)))
-        controls_text = "LMB: select   RMB: send   MMB drag: pan   MMB click: gathering point   Wheel: zoom   1-9: send N ships   F1-F10: send %   Space: pause   +/-: speed   F: fullscreen   R: new game"
+        controls_text = "LMB: select   RMB: send / nuke   N: arm nuke   MMB drag: pan   MMB click: gathering point   Wheel: zoom   1-9: send N ships   F1-F10: send %   Space: pause   +/-: speed   F: fullscreen   R: new game"
         controls = self.tiny_font.render(controls_text, True, config.MUTED_TEXT)
         self.screen.blit(controls, controls.get_rect(midtop=(sw // 2, 40)))
 

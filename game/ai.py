@@ -98,22 +98,14 @@ class AIController:
 
         top_power, top_id, top_is_player = powers[0]
         second_power = powers[1][0]
-        
-        total_galactic = sum(power for power, eid, _ in powers)
-        if total_galactic <= 0:
-            return
-            
-        top_share = top_power / total_galactic
+
         pairwise_ratio = top_power / max(1.0, second_power)
+        absolute_gap = top_power - second_power
 
         dominant = (
-            pairwise_ratio >= config.NUCLEAR_DOMINANCE_RATIO or
-            top_share >= config.NUCLEAR_SHARE_THRESHOLD
+            pairwise_ratio >= config.NUCLEAR_DOMINANCE_RATIO
+            and absolute_gap >= config.NUCLEAR_DOMINANCE_ABS_GAP
         )
-
-        min_threshold = config.NUCLEAR_MIN_RUNAWAY_START_MULT * config.STARTING_SHIPS
-        if top_power < min_threshold:
-            dominant = False
 
         if dominant:
             if self.dominance_detected.get(top_id, 0.0) <= 0.0:
@@ -132,13 +124,13 @@ class AIController:
                 if system.owner_id == top_id
                 and system.id not in self.galaxy.nuked_grace
             ]
-            
+
             if not targets:
                 targets = [
                     system for system in self.galaxy.systems
                     if system.owner_id == top_id
                 ]
-            
+
             if not targets:
                 return
 
@@ -146,7 +138,7 @@ class AIController:
             target_system = best
 
             origin = min(
-                (system for system in self.galaxy.systems 
+                (system for system in self.galaxy.systems
                  if system.owner_id == empire_id),
                 key=lambda system: system.pos.distance_to(target_system.pos),
                 default=None,
@@ -202,13 +194,13 @@ class AIController:
             ]
         if not targets:
             return
-        
+
         targets_sorted = sorted(targets, key=self._nuclear_target_score, reverse=True)
         num_missiles = empire.missiles_remaining
-        
+
         launched = 0
         used_targets = set()
-        
+
         for missile_idx in range(min(num_missiles, len(targets_sorted))):
             for candidate in targets_sorted:
                 if candidate.id in used_targets:
@@ -217,25 +209,25 @@ class AIController:
                 break
             else:
                 break
-            
+
             origin = min(
-                (system for system in self.galaxy.systems 
+                (system for system in self.galaxy.systems
                  if system.owner_id == empire_id),
                 key=lambda system: system.pos.distance_to(target.pos),
                 default=None,
             )
             if origin is None:
                 break
-            
+
             if self.galaxy._launch_nuclear(origin.id, target.id, ignore_cooldown=True):
                 launched += 1
                 used_targets.add(target.id)
             else:
                 break
-                
+
             if launched >= num_missiles:
                 break
-        
+
         empire.missiles_remaining = 0
         self.nuclear_lockouts[empire_id] = config.NUCLEAR_LAUNCH_LOCKOUT
 

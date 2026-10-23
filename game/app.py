@@ -281,6 +281,11 @@ class GameApp:
         if key == pygame.K_RIGHT:
             self.camera['offset_x'] -= 50
             return True
+            
+        if key == pygame.K_n:
+            if not self.galaxy.autopilot:
+                self.player.toggle_nuke_mode()
+            return True
 
         if self.galaxy.autopilot:
             return False

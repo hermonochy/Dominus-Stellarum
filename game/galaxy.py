@@ -436,7 +436,6 @@ class Galaxy:
             best = max(candidates, key=min_dist_to_placed)
             place(best, empire_id)
             empire_id += 1
-
     def _empire_production_efficiency(self, owned_count: int, total_systems: int) -> float:
         if total_systems <= 0:
             return 1.0
@@ -518,6 +517,55 @@ class Galaxy:
 
     def missile_inbound(self, system_id: int) -> bool:
         return any(f.is_missile and f.target_id == system_id for f in self.fleets)
+
+    def launch_player_nuclear(self, target_id: int) -> tuple[bool, str]:
+        empire = self.empires[config.PLAYER_ID]
+        if empire.missiles_remaining <= 0:
+            return False, "You have no missiles remaining."
+
+        if self.nuclear_cooldown > 0.0:
+            return False, f"Nuclear launch cooldown: {int(self.nuclear_cooldown)}s remaining."
+
+        target = self.systems[target_id]
+        if target.owner_id == config.PLAYER_ID:
+            return False, "You cannot nuke your own system."
+
+        if target.id in self.nuked_grace:
+            return False, f"{target.name} was recently struck — launch refused."
+
+        if self.missile_inbound(target_id):
+            return False, "A missile is already inbound to that system."
+
+        origin = min(
+            (system for system in self.systems
+             if system.owner_id == config.PLAYER_ID),
+            key=lambda system: system.pos.distance_to(target.pos),
+            default=None,
+        )
+        if origin is None:
+            return False, "You no longer control any launch site."
+
+        route = self.shortest_path(origin.id, target_id)
+        if route is None or len(route) < 2:
+            return False, "No route exists from your territory to that system."
+
+        empire.missiles_remaining -= 1
+        self.nuclear_cooldown = config.NUCLEAR_GLOBAL_COOLDOWN
+        self.fleets.append(
+            Fleet(
+                id=self.next_fleet_id,
+                owner_id=config.PLAYER_ID,
+                source_id=origin.id,
+                target_id=target_id,
+                ships=1.0,
+                route=route,
+                route_index=1,
+                segment_progress=0.0,
+                is_missile=True,
+            )
+        )
+        self.next_fleet_id += 1
+        return True, f"Nuclear missile launched at {target.name}."
 
     def _launch_nuclear(self, source_id: int, target_id: int, ignore_cooldown: bool = False) -> bool:
         source = self.systems[source_id]
