@@ -78,6 +78,19 @@ To avoid manually sending newly generated ships to frontier planets, **Middle-cl
 
 Gathering points persist even if the system changes hands — place one deep in enemy space to stage an invasion, or hold a contested chokepoint.
 
+#### Nuclear Warfare
+
+Arm nuclear targeting with N, then right-click an enemy system to launch. The missile destroys all ships in its blast radius and damages nearby systems. Both launcher and victim suffer citizen morale penalties—use carefully to avoid triggering rebellions.
+
+#### Revolts and Betrayals
+
+Empires grow restless after heavy casualties or nuclear strikes. When citizen happiness drops too low, systems may defect:
+
+- Betrayal: A planet joins a neighboring empire
+- Revolt: Multiple systems in a sector rise together, forming a new independent rebellion
+
+Maintain morale by capturing new territory or reduce casualties. Neglect invites revolt.
+
 ### Controls
 
 | Action | Control |
@@ -90,6 +103,7 @@ Gathering points persist even if the system changes hands — place one deep in 
 | Pan the view | Arrow keys |
 | Send X ships from the selected planet | 1–9 |
 | Send Y% of the fleet | F1–F10 |
+| Toggle nuclear targeting | `N` |
 | Pause or resume the simulation | `Space` |
 | Increase simulation speed | `+` or `=` |
 | Decrease simulation speed | `-` |
