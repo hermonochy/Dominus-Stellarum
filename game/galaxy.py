@@ -1,4 +1,3 @@
-# galaxy.py
 from __future__ import annotations
 
 import math
@@ -392,10 +391,18 @@ class Galaxy:
                     is_player=(empire_id == player_slot),
                     missiles_remaining=missiles,
                     happiness=happiness,
+                    unrest_tolerance=self._unrest_tolerance(happiness),
                 )
             )
         self.next_empire_id = len(self.empires)
         config.PLAYER_ID = player_slot
+
+    @staticmethod
+    def _unrest_tolerance(starting_happiness: float) -> float:
+        return max(
+            config.UNREST_TOLERANCE_FLOOR,
+            starting_happiness / config.DEFAULT_HAPPINESS,
+        )
 
     def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
         rel = system.pos - center
@@ -641,8 +648,6 @@ class Galaxy:
     def _apply_nuclear_strike(self, node: StarSystem) -> None:
         if node.owner_id is None:
             return
-        empire = self.empires[node.owner_id]
-        empire.happiness = max(0.0, empire.happiness - config.NUKE_VICTIM_HAPPINESS_COST)
         if node.ships > 0.0:
             loss = node.ships
             node.ships = 0.0
@@ -887,7 +892,7 @@ class Galaxy:
             if fleet.is_missile or fleet.route_index >= len(fleet.route):
                 merged.append(fleet)
                 continue
-            key = (fleet.owner_id, fleet.route[fleet.route_index - 1], fleet.route[fleet.route_index])
+            key = (fleet.owner_id, fleet.target_id, fleet.route[fleet.route_index - 1], fleet.route[fleet.route_index])
             lead = segments.get(key)
             if lead is None:
                 segments[key] = fleet
@@ -1009,7 +1014,12 @@ class Galaxy:
             if metric < 0.01:
                 empire.happiness += config.HAPPINESS_PEACETIME_RECOVERY * dt
             elif metric > 0.08:
-                empire.happiness -= config.CASUALTY_UNREST_FACTOR * metric * dt
+                empire.happiness -= (
+                    config.CASUALTY_UNREST_FACTOR
+                    * metric
+                    * dt
+                    / max(config.UNREST_TOLERANCE_FLOOR, empire.unrest_tolerance)
+                )
             empire.happiness = max(0.0, min(config.HAPPINESS_MAX, empire.happiness))
 
     def _update_rebellions(self, dt: float) -> None:
@@ -1186,6 +1196,7 @@ class Galaxy:
             missiles_remaining=0,
             happiness=config.REBEL_HAPPINESS,
             is_rebel=True,
+            unrest_tolerance=self._unrest_tolerance(config.REBEL_HAPPINESS),
         )
         self.next_empire_id += 1
         self.empires.append(rebel)
