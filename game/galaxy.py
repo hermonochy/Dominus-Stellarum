@@ -663,6 +663,18 @@ class Galaxy:
                 affected.append(other)
         for node in affected:
             self._apply_nuclear_strike(node)
+        if config.NUCLEAR_KILLS_FLEETS:
+            destroyed_ids: set[int] = set()
+            for fleet in self.fleets:
+                if fleet.is_missile:
+                    continue
+                if fleet.position.distance_to(system.pos) < config.NUCLEAR_EFFECT_RADIUS:
+                    self._record_casualties(fleet.owner_id, fleet.ships)
+                    if fleet.owner_id == config.PLAYER_ID and fleet.ships >= 1.0:
+                        self.pending_messages.append("A fleet of yours was vaporised in the blast!")
+                    destroyed_ids.add(fleet.id)
+            if destroyed_ids:
+                self.fleets = [f for f in self.fleets if f.id not in destroyed_ids]
         self.nuked_grace[system.id] = config.NUCLEAR_NUKED_GRACE
         self.explosions.append(
             Explosion(
