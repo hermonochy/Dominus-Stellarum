@@ -71,6 +71,7 @@ def fire_at_target(
     rng: random.Random,
     shooter_is_system: bool = False,
     max_effective_ships: Optional[float] = None,
+    spawn_visuals: bool = True,
 ) -> list[CombatShot]:
     if shooter.owner_id == target.owner_id:
         return []
@@ -103,6 +104,9 @@ def fire_at_target(
 
     if target.ships < config.COMBAT_MIN_SHIPS:
         target.ships = 0.0
+
+    if not spawn_visuals:
+        return []
 
     shots_per_second = (
         config.DEFENDER_SHOTS_PER_SECOND

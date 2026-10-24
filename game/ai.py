@@ -347,7 +347,7 @@ class AIController:
             return None
         return min(adjacent, key=lambda eid: adjacent[eid])
 
-    def _maintain_massing_campaign(self, empire_id: int) -> None:
+    def _maintain_massing_campaign(self, empire_id: int, front_lines: set[int]) -> None:
         if empire_id not in self.massing_focus or self.massing_focus[empire_id] is None:
             return
         stage_id = self.massing_stage_point.get(empire_id)
@@ -364,11 +364,10 @@ class AIController:
                 continue
             if system.id in self.galaxy.gathering_points:
                 continue
+            if system.id in front_lines:
+                continue
             excess = system.ships - config.AI_MASSING_STAGE_RETENTION
             if excess < 1.0:
-                continue
-            front_lines = self._identify_front_lines(empire_id)
-            if system.id in front_lines:
                 continue
             amount = int(excess * config.AI_MASSING_LAUNCH_PERCENT / 100.0)
             if amount < 1:
@@ -444,7 +443,7 @@ class AIController:
                     break
         return expansions
 
-    def _try_defense(self, empire_id: int) -> None:
+    def _try_defense(self, empire_id: int, front_lines: set[int]) -> None:
         threats: dict[int, float] = {}
         for fleet in self.galaxy.fleets:
             if fleet.is_missile:
@@ -455,30 +454,41 @@ class AIController:
                 continue
             threats[fleet.target_id] = threats.get(fleet.target_id, 0.0) + fleet.ships
 
+        if not threats:
+            return
+
+        systems = self.galaxy.systems
+        defenders: list[int] = []
+        for system in systems:
+            if system.owner_id != empire_id:
+                continue
+            if system.id in front_lines:
+                continue
+            if system.ships - config.AI_REAR_GUARD_MAX < 1.0:
+                continue
+            defenders.append(system.id)
+        if not defenders:
+            return
+
         for target_id, threat in threats.items():
-            target = self.galaxy.systems[target_id]
+            target = systems[target_id]
             if target.owner_id != empire_id:
                 continue
             if target.ships >= threat * config.AI_MIN_ATTACK_RATIO:
                 continue
-            responders: list[tuple[float, int]] = []
-            for system in self.galaxy.systems:
-                if system.owner_id != empire_id or system.id == target_id:
+            responders: list[tuple[int, int]] = []
+            for responder_id in defenders:
+                if responder_id == target_id:
                     continue
-                if system.id in self._identify_front_lines(empire_id):
-                    continue
-                excess = system.ships - config.AI_REAR_GUARD_MAX
-                if excess < 1.0:
-                    continue
-                route = self.galaxy.shortest_path(system.id, target_id)
+                route = self.galaxy.shortest_path(responder_id, target_id)
                 if route is None:
                     continue
-                responders.append((len(route), system.id))
+                responders.append((len(route), responder_id))
             if not responders:
                 continue
             responders.sort()
             for hops, responder_id in responders[: config.AI_MAX_REAR_DISPATCHES]:
-                responder = self.galaxy.systems[responder_id]
+                responder = systems[responder_id]
                 amount = int(responder.ships * config.AI_REAR_SEND_PERCENT / 100.0)
                 if amount < 1:
                     continue
@@ -544,8 +554,7 @@ class AIController:
                 continue
             self.galaxy.launch_fleet(system.id, focus_id, min(100, int(amount / system.ships * 100)))
 
-    def _release_rear_ships(self, empire_id: int) -> None:
-        front_lines = self._identify_front_lines(empire_id)
+    def _release_rear_ships(self, empire_id: int, front_lines: set[int]) -> None:
         if not front_lines:
             return
         dispatches = 0
@@ -580,27 +589,27 @@ class AIController:
         self._consider_nuclear_launch(empire_id)
         self._consider_spite_launch(empire_id)
 
+        front_lines = self._identify_front_lines(empire_id)
+
         if self.massing_focus.get(empire_id) is not None:
-            self._maintain_massing_campaign(empire_id)
+            self._maintain_massing_campaign(empire_id, front_lines)
             self._execute_massing_assault(empire_id)
         elif self.rng.random() < config.AI_MASSING_CHANCE:
-            self._try_initiate_massing_campaign(
-                empire_id, self._identify_front_lines(empire_id)
-            )
+            self._try_initiate_massing_campaign(empire_id, front_lines)
 
         if self.breakthrough_focus.get(empire_id) is None:
             self.breakthrough_focus[empire_id] = self._find_best_breakthrough_target(
-                empire_id, self._identify_front_lines(empire_id)
+                empire_id, front_lines
             )
             if self.breakthrough_focus.get(empire_id) is not None:
                 self.breakthrough_timer[empire_id] = config.AI_BREAKTHROUGH_FOCUS_DURATION
         else:
             self._maintain_breakthrough(empire_id)
 
-        self._try_defense(empire_id)
+        self._try_defense(empire_id, front_lines)
         self._try_expansion(empire_id, config.AI_MAX_EXPANSIONS_PER_TICK)
         self._try_blitz(empire_id)
-        self._release_rear_ships(empire_id)
+        self._release_rear_ships(empire_id, front_lines)
 
         if self.blitz_target.get(empire_id) is None:
             border_targets = [

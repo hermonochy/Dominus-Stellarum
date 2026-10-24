@@ -39,6 +39,8 @@ class Galaxy:
         self.spatial_grid: dict[tuple[int, int], list[int]] = {}
         self.path_cache: dict[tuple[int, int], Optional[tuple[int, ...]]] = {}
         self._ship_count_cache: Optional[dict[int, float]] = None
+        self._combat_tick_accum = 0.0
+        self._gather_dispatch_timers: dict[int, float] = {}
 
         self.generate()
 
@@ -65,6 +67,8 @@ class Galaxy:
         self.spatial_grid.clear()
         self.path_cache.clear()
         self._ship_count_cache = None
+        self._combat_tick_accum = 0.0
+        self._gather_dispatch_timers.clear()
         self._create_systems()
         self._create_empires()
         self._place_empires()
@@ -82,9 +86,19 @@ class Galaxy:
         for explosion in self.explosions:
             explosion.age += dt
         self.explosions = [e for e in self.explosions if e.age < e.max_age]
+        for shot in self.combat_shots:
+            shot.lifetime -= dt
+        self.combat_shots = [shot for shot in self.combat_shots if shot.lifetime > 0.0]
         self._produce_ships(dt)
+        forces_before = self._snapshot_forces()
         self._update_fleets(dt)
-        self._update_standoff_combat(dt)
+        self._combat_tick_accum += dt
+        combat_interval = 1.0 / config.COMBAT_TICKS_PER_SECOND
+        if self._combat_tick_accum >= combat_interval:
+            combat_dt = self._combat_tick_accum
+            self._combat_tick_accum = 0.0
+            self._update_standoff_combat(combat_dt)
+        self._resolve_casualties(forces_before)
         self._resolve_captures()
         self._update_happiness(dt)
         self._update_rebellions(dt)
@@ -100,8 +114,9 @@ class Galaxy:
         system_data: list[tuple[str, float]] = []
         arm_tags: list[Optional[int]] = []
 
-        prefixes = ["Al", "Ar", "Bel", "Ca", "Cor", "Del", "Er", "Fal", "Gal", "Hel", "Io", "Jan", "Kel", "Lor", "Mor", "Nor", "Or", "Pra", "Qua", "Ren", "Sol", "Tal", "Ur", "Vel", "Wex", "Xan", "Yar", "Zen"]
-        suffixes = ["a", "ar", "ath", "ea", "en", "eron", "ia", "ion", "is", "o", "on", "or", "os", "um", "us"]
+        prefixes = ["Al", "An", "Ar", "Aus", "Bel", "Bor", "Ca", "Cal", "Cor", "Cry", "Del", "Dor", "Dra", "Er", "Ere", "Fal", "Fer", "Gal", "Gar", "Hal", "Hel", "Hor", "Io", "Ir", "Jan", "Kel", "Kor", "Lan", "Lor", "Lu", "Mar", "Mor", "Nab", "Nor", "Ny", "Ob", "Or", "Pal", "Pra", "Qua", "Ral", "Ren", "Rho", "Sol", "Tal", "Tar", "Tha", "Tor", "Ur", "Val", "Vel", "Vor", "Wex", "Xan", "Yar", "Zen", "Zeph"]
+        suffixes = ["a", "ac", "ae", "al", "an", "ar", "ath", "ea", "ek", "en", "er", "era", "es", "ia", "ion", "ir", "is", "ix", "o", "on", "or", "os", "ox", "um", "ur", "us", "yn", "yr", "zar"]
+        modifiers = ["", " Prime", " Minor", " Secundus", " Tertius", " II", " III", " IV", " IX"]
 
         cell_size = config.MIN_STAR_DISTANCE
         spawn_grid: dict[tuple[int, int], list[pygame.Vector2]] = {}
@@ -125,8 +140,14 @@ class Galaxy:
             return False
 
         def make_name() -> str:
-            for _ in range((len(prefixes) * len(suffixes))):
+            base_capacity = len(prefixes) * len(suffixes)
+            for _ in range(base_capacity):
                 name = self.rng.choice(prefixes) + self.rng.choice(suffixes)
+                if name not in used_names:
+                    used_names.add(name)
+                    return name
+            for _ in range(base_capacity * len(modifiers) * 2):
+                name = self.rng.choice(prefixes) + self.rng.choice(suffixes) + self.rng.choice(modifiers[1:])
                 if name not in used_names:
                     used_names.add(name)
                     return name
@@ -485,9 +506,14 @@ class Galaxy:
             self.new_ship_accum[system.id] = self.new_ship_accum.get(system.id, 0.0) + gain
             self.active_combat[system.id] = max(0.0, self.active_combat.get(system.id, 0.0) - dt * 2.0)
 
-            if system.owner_id == config.PLAYER_ID and system.id not in self.gathering_points:
-                if self.new_ship_accum[system.id] >= config.SHIP_DISPATCH_THRESHOLD:
-                    self._dispatch_accumulated(system)
+            if system.owner_id == config.PLAYER_ID and self.gathering_points and system.id not in self.gathering_points:
+                timer = self._gather_dispatch_timers.get(system.id, 0.0) - dt
+                if timer <= 0.0:
+                    self._gather_dispatch_timers[system.id] = config.GATHERING_DISPATCH_INTERVAL
+                    if self.new_ship_accum.get(system.id, 0.0) >= config.SHIP_DISPATCH_THRESHOLD:
+                        self._dispatch_accumulated(system)
+                else:
+                    self._gather_dispatch_timers[system.id] = timer
 
     def _dispatch_accumulated(self, system: StarSystem) -> None:
         accumulated = self.new_ship_accum[system.id]
@@ -795,10 +821,6 @@ class Galaxy:
         arrived: list[Fleet] = []
         detonations: list[Fleet] = []
         surviving_fleets: list[Fleet] = []
-        forces_before = self._snapshot_forces()
-        for shot in self.combat_shots:
-            shot.lifetime -= dt
-        self.combat_shots = [shot for shot in self.combat_shots if shot.lifetime > 0.0]
         for fleet in self.fleets:
             speed = config.FLEET_SPEED
             if fleet.is_missile:
@@ -842,9 +864,30 @@ class Galaxy:
             resolve_fleet_arrival(fleet, target)
         for fleet in detonations:
             self._detonate(self.systems[fleet.target_id])
-        if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
-            self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
-        self._resolve_casualties(forces_before)
+        self._merge_fleets()
+
+    def _merge_fleets(self) -> None:
+        if len(self.fleets) < config.FLEET_MERGE_THRESHOLD:
+            return
+        segments: dict[tuple[int, int, int], Fleet] = {}
+        merged: list[Fleet] = []
+        for fleet in self.fleets:
+            if fleet.is_missile or fleet.route_index >= len(fleet.route):
+                merged.append(fleet)
+                continue
+            key = (fleet.owner_id, fleet.route[fleet.route_index - 1], fleet.route[fleet.route_index])
+            lead = segments.get(key)
+            if lead is None:
+                segments[key] = fleet
+                merged.append(fleet)
+                continue
+            total = lead.ships + fleet.ships
+            if total > 0.0:
+                lead.segment_progress = (
+                    lead.segment_progress * lead.ships + fleet.segment_progress * fleet.ships
+                ) / total
+            lead.ships = total
+        self.fleets = merged
 
     def _build_fleet_grid(self) -> dict[tuple[int, int], list[Fleet]]:
         cell_size = self.grid_cell_size
@@ -881,7 +924,7 @@ class Galaxy:
         return result
 
     def _update_standoff_combat(self, dt: float) -> None:
-        forces_before = self._snapshot_forces()
+        shot_allowance = config.MAX_VISIBLE_SHOTS - len(self.combat_shots)
         for system in self.systems:
             if system.owner_id is None or system.ships <= config.COMBAT_MIN_SHIPS:
                 continue
@@ -894,8 +937,10 @@ class Galaxy:
                     continue
                 if other.ships <= config.COMBAT_MIN_SHIPS:
                     continue
-                shots = fire_at_target(system, other, system.pos, other.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, shooter_color, self.rng, True)
-                self.combat_shots.extend(shots)
+                shots = fire_at_target(system, other, system.pos, other.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, shooter_color, self.rng, True, spawn_visuals=shot_allowance > 0)
+                if shots:
+                    self.combat_shots.extend(shots)
+                    shot_allowance -= len(shots)
                 self.active_combat[other.id] = self.active_combat.get(other.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
         fleet_grid = self._build_fleet_grid()
         seen_pairs: set[tuple[int, int]] = set()
@@ -911,8 +956,10 @@ class Galaxy:
                     continue
                 if system.ships <= config.COMBAT_MIN_SHIPS:
                     continue
-                shots = fire_at_target(fleet, system, fleet.position, system.pos, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng)
-                self.combat_shots.extend(shots)
+                shots = fire_at_target(fleet, system, fleet.position, system.pos, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng, spawn_visuals=shot_allowance > 0)
+                if shots:
+                    self.combat_shots.extend(shots)
+                    shot_allowance -= len(shots)
                 self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.FLEET_VS_FLEET_PER_SHIP * config.DEFENDER_BONUS
             for other in self._nearby_fleets(fleet.position, shooter_range, fleet_grid):
                 if other is fleet or other.owner_id == fleet.owner_id:
@@ -925,13 +972,14 @@ class Galaxy:
                 if pair in seen_pairs:
                     continue
                 seen_pairs.add(pair)
-                shots = fire_at_target(fleet, other, fleet.position, other.position, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng)
-                shots += fire_at_target(other, fleet, other.position, fleet.position, dt, config.FLEET_VS_FLEET_PER_SHIP, self.empires[other.owner_id].color, self.rng)
-                self.combat_shots.extend(shots)
+                shots = fire_at_target(fleet, other, fleet.position, other.position, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng, spawn_visuals=shot_allowance > 0)
+                shots += fire_at_target(other, fleet, other.position, fleet.position, dt, config.FLEET_VS_FLEET_PER_SHIP, self.empires[other.owner_id].color, self.rng, spawn_visuals=shot_allowance > 0)
+                if shots:
+                    self.combat_shots.extend(shots)
+                    shot_allowance -= len(shots)
         self.fleets = [f for f in self.fleets if f.is_missile or f.ships > config.COMBAT_MIN_SHIPS]
         if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
-        self._resolve_casualties(forces_before)
 
     def _update_happiness(self, dt: float) -> None:
         decay = math.exp(-dt / config.CASUALTY_WINDOW)
@@ -1140,10 +1188,14 @@ class Galaxy:
             )
 
     def _update_empire_status(self) -> None:
+        owners: set[int] = set()
+        for system in self.systems:
+            if system.owner_id is not None:
+                owners.add(system.owner_id)
+        for fleet in self.fleets:
+            owners.add(fleet.owner_id)
         for empire in self.empires:
-            owns_system = any(system.owner_id == empire.id for system in self.systems)
-            owns_fleet = any(fleet.owner_id == empire.id for fleet in self.fleets)
-            empire.alive = owns_system or owns_fleet
+            empire.alive = empire.id in owners
 
     def system_at(self, position: tuple[int, int], radius: float = 18) -> Optional[StarSystem]:
         point = pygame.Vector2(position)
@@ -1218,15 +1270,16 @@ class Galaxy:
         col_max = int((pos.x + radius) // cell_size)
         row_min = int((pos.y - radius) // cell_size)
         row_max = int((pos.y + radius) // cell_size)
-        nearby_ids: set[int] = set()
+        result: list[StarSystem] = []
+        systems = self.systems
+        grid = self.spatial_grid
         for col in range(col_min, col_max + 1):
             for row in range(row_min, row_max + 1):
-                bucket = self.spatial_grid.get((col, row))
-                if bucket:
-                    nearby_ids.update(bucket)
-        result: list[StarSystem] = []
-        for sid in nearby_ids:
-            system = self.systems[sid]
-            if system.pos.distance_to(pos) <= radius:
-                result.append(system)
+                bucket = grid.get((col, row))
+                if not bucket:
+                    continue
+                for sid in bucket:
+                    system = systems[sid]
+                    if system.pos.distance_to(pos) <= radius:
+                        result.append(system)
         return result
