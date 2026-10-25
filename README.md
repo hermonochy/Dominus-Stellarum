@@ -7,12 +7,19 @@ A real-time 4X space strategy game built with Python and pygame. Expand your emp
 
 ![](./screenshots/screenshot1.png)
 
-## Requirements
+## Installation
+
+### Binaries
+
+Go to [releases](https://github.com/hermonochy/Dominus-Stellarum/releases/) and download the desired binary.
+
+### Building from source
+
+
+#### Requirements
 
 - Python 3.10 or newer recommended
 - pygame
-
-## Installation
 
 Clone the repository and enter the project directory:
 
@@ -23,14 +30,14 @@ cd Dominus-Stellarum
 
 Create and activate a virtual environment:
 
-### Windows
+#### Windows
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 ```
 
-### macOS/Linux
+#### macOS/Linux
 
 ```bash
 python3 -m venv .venv
@@ -45,7 +52,7 @@ pip install -r requirements.txt
 
 ## Running the game
 
-Start the game with:
+If you built from source, start the game with:
 
 ```bash
 python main.py
@@ -55,6 +62,20 @@ On systems where Python is invoked as `python3`, use:
 
 ```bash
 python3 main.py
+```
+
+If you downloaded a binary, simply execute it:
+
+Linux:
+
+```bash
+./Dominus_Stellarum_lin
+```
+
+Windows:
+
+```
+.\Dominus_Stellarum.exe
 ```
 
 ## How to play
