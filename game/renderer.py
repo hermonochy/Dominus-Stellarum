@@ -657,7 +657,7 @@ class Renderer:
         )
         self.screen.blit(stats, stats.get_rect(midtop=(sw // 2, 14)))
         mood_surface = self.small_font.render(
-            f"Citizens: {int(player_empire.happiness)}% ({mood})",
+            f"Troop Morale: {int(player_empire.happiness)}% ({mood})",
             True,
             mood_color,
         )
