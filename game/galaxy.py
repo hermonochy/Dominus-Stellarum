@@ -34,6 +34,11 @@ class Galaxy:
         self.next_empire_id = 0
         self._casualty_accum: dict[int, float] = {}
         self._prev_owners: dict[int, Optional[int]] = {}
+        self.sim_time = 0.0
+        self.colonization_history: dict[int, list[float]] = {}
+        self.colonization_start: dict[int, float] = {}
+        self.colonization_delay: dict[int, float] = {}
+        self.colonization_origin: dict[int, set[int]] = {}
 
         self.grid_cell_size = config.COMBAT_RANGE * 2.0
         self.spatial_grid: dict[tuple[int, int], list[int]] = {}
@@ -69,15 +74,24 @@ class Galaxy:
         self._ship_count_cache = None
         self._combat_tick_accum = 0.0
         self._gather_dispatch_timers.clear()
+        self.sim_time = 0.0
+        self.colonization_history.clear()
+        self.colonization_start.clear()
+        self.colonization_delay.clear()
+        self.colonization_origin.clear()
         self._create_systems()
         self._place_nuclear_depots()
         self._create_empires()
         self._place_empires()
         self._build_spatial_grid()
         self._prev_owners = {system.id: system.owner_id for system in self.systems}
+        for system in self.systems:
+            if system.owner_id is not None:
+                self.colonization_origin.setdefault(system.owner_id, set()).add(system.id)
 
     def update(self, dt: float) -> None:
         self._ship_count_cache = None
+        self.sim_time += dt
         if self.nuclear_cooldown > 0.0:
             self.nuclear_cooldown = max(0.0, self.nuclear_cooldown - dt)
         for sid in list(self.nuked_grace):
@@ -90,6 +104,7 @@ class Galaxy:
         for shot in self.combat_shots:
             shot.lifetime -= dt
         self.combat_shots = [shot for shot in self.combat_shots if shot.lifetime > 0.0]
+        self._prune_colonization_history()
         self._produce_ships(dt)
         forces_before = self._snapshot_forces()
         self._update_fleets(dt)
@@ -505,6 +520,55 @@ class Galaxy:
         efficiency = config.PRODUCTION_A*share**2 + config.PRODUCTION_B*share + config.PRODUCTION_C
         return efficiency
 
+    def _prune_colonization_history(self) -> None:
+        cutoff = self.sim_time - config.COLONIZATION_RATE_WINDOW
+        for empire_id in list(self.colonization_history):
+            history = self.colonization_history[empire_id]
+            if history and history[-1] >= cutoff:
+                continue
+            self.colonization_history[empire_id] = [
+                stamp for stamp in history if stamp >= cutoff
+            ]
+            if not self.colonization_history[empire_id]:
+                del self.colonization_history[empire_id]
+
+    def _colonization_delay_for(self, empire_id: int) -> float:
+        recent = len(self.colonization_history.get(empire_id, []))
+        system_count = self.empire_system_count(empire_id)
+        delay = (
+            config.COLONIZATION_DELAY_BASE
+            + recent * config.COLONIZATION_DELAY_PER_CAPTURE
+            + system_count * config.COLONIZATION_DELAY_PER_SYSTEM
+        )
+        return delay
+
+    def _begin_colonization(self, system: StarSystem) -> None:
+        empire_id = system.owner_id
+        self.colonization_start[system.id] = self.sim_time
+        delay = self._colonization_delay_for(empire_id)
+        self.colonization_delay[system.id] = delay
+        origins = self.colonization_origin.setdefault(empire_id, set())
+        fresh = system.id not in origins
+        if fresh:
+            origins.add(system.id)
+            self.colonization_history.setdefault(empire_id, []).append(self.sim_time)
+
+    def _colonization_output(self, system: StarSystem) -> float:
+        start = self.colonization_start.get(system.id)
+        if start is None:
+            return 1.0
+        elapsed = self.sim_time - start
+        delay = self.colonization_delay.get(system.id, 0.0)
+        if elapsed < delay:
+            return 0.0
+        if elapsed >= delay + config.COLONIZATION_RAMP_TIME:
+            del self.colonization_start[system.id]
+            del self.colonization_delay[system.id]
+            return 1.0
+        ramp_elapsed = elapsed - delay
+        ramp = ramp_elapsed / max(1.0, config.COLONIZATION_RAMP_TIME)
+        return min(1.0, max(0.0, ramp * ramp))
+
     def _produce_ships(self, dt: float) -> None:
         owned_counts: dict[int, int] = {}
         total_systems = len(self.systems)
@@ -519,14 +583,16 @@ class Galaxy:
             if self._accum_owner.get(system.id) != system.owner_id:
                 self._accum_owner[system.id] = system.owner_id
                 self.new_ship_accum[system.id] = 0.0
+                self._begin_colonization(system)
             owned_count = owned_counts.get(system.owner_id, 1)
             efficiency = self._empire_production_efficiency(owned_count, total_systems)
+            colonization_output = self._colonization_output(system)
 
             active_penalty = 1.0
             if system.id in self.active_combat:
                 active_penalty = max(0.3, 1.0 - self.active_combat[system.id] * 0.1)
 
-            gain = system.production * dt * efficiency * active_penalty
+            gain = system.production * dt * efficiency * active_penalty * colonization_output
             system.ships += gain
 
             self.new_ship_accum[system.id] = self.new_ship_accum.get(system.id, 0.0) + gain
