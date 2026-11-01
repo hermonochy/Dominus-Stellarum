@@ -3,15 +3,21 @@
 
 # Dominus Stellarum
 
-A real-time 4X space strategy game built with Python and pygame. Expand your empire across a procedurally generated galaxy, send fleets along hyperlanes, defeat rival empires, and become the last surviving power.
+A real-time 4X space strategy game built with Python and pygame. 
+
+Claim a foothold in a procedurally generated spiral galaxy, expand through a network of hyperlanes, and outmanoeuvre rival empires. Build up your fleets, establish gathering points, unleash nuclear strikes, and keep your population loyal—or risk watching your empire fracture from within.
+
+[**Download a release**](https://github.com/hermonochy/Dominus-Stellarum/releases) · [Report a bug](https://github.com/hermonochy/Dominus-Stellarum/issues) · [View the source](https://github.com/hermonochy/Dominus-Stellarum/game)
 
 ![](./screenshots/screenshot1.png)
 
-## Installation
+## Getting started
 
-### Binaries
+### Download a release
 
-Go to [releases](https://github.com/hermonochy/Dominus-Stellarum/releases/) and download the desired binary.
+The [Releases page](https://github.com/hermonochy/Dominus-Stellarum/releases) contains packaged builds when available. Download the build for your operating system, and launch the executable.
+
+macOS users may need to run the game from source if a macOS package is not provided for the release.
 
 ### Building from source
 
@@ -32,7 +38,7 @@ Create and activate a virtual environment:
 
 #### Windows
 
-```bash
+```powershell
 python -m venv .venv
 .venv\Scripts\activate
 ```
@@ -64,30 +70,16 @@ On systems where Python is invoked as `python3`, use:
 python3 main.py
 ```
 
-If you downloaded a binary, simply execute it:
-
-Linux:
-
-```bash
-./Dominus_Stellarum_lin
-```
-
-Windows:
-
-```
-.\Dominus_Stellarum.exe
-```
-
 ## How to play
 
-You begin with one controlled star system. Owned systems continuously produce ships. Use those ships to reinforce your territory or attack neighboring systems.
+You begin with a home system and a fleet. Systems under your control produce ships over time. Expand into neutral territory, reinforce vulnerable borders, and attack rival empires. Fleets travel along the hyperlanes shown on the map, so controlling routes and chokepoints is key. The objective is simple: to become the **last empire controlling the galaxy**. Victory is awarded when one empire controls every system; AI empires can win too.
 
 ### Fleet orders
 
-1. **Left-click** one of your systems to select it.
-2. **Right-click** a different system to send a fleet.
-3. Fleets can only travel along displayed hyperlanes.
-4. Capturing all rival territory makes you the winner.
+1. **Select a system:** Left-click one of your systems.
+2. **Choose a destination:** Right-click another system to send a fleet.
+3. **Choose the force:** Use the number keys to send a small fixed number of ships, or the function keys to send a percentage of the available fleet.
+4. **Plan around the map:** Fleets can only travel along connected hyperlanes.
 
 #### Gathering points
 
@@ -131,20 +123,6 @@ Maintain morale by capturing new territory or reduce casualties. Neglect invites
 | Toggle fullscreen | `F` |
 | Exit fullscreen (or quit the game) | `Esc` |
 | Start a new game | `R` |
-
-## Configuration
-
-Gameplay and display settings can be adjusted in [`game/config.py`](game/config.py), including but not limited to:
-
-- Frame rate
-- Number of star systems and empires
-- Star spacing and hyperlane generation
-- Starting ship counts
-- Production rates
-- Fleet speed
-- AI decision intervals and attack thresholds
-- Simulation speed options
-- Empire names and colors
 
 ## Future Work
 
