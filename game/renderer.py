@@ -25,8 +25,10 @@ class Renderer:
         self._bottom_font_key = None
         self._empire_row_font = None
         self._empire_title_font = None
-        self._selection_font_key = None
-        self._selection_body_font = None
+        self._tooltip_font_key = None
+        self._tooltip_font = None
+        self._tooltip_label_font_key = None
+        self._tooltip_label_font = None
         self._empire_row_rects: list[tuple[pygame.Rect, object]] = []
         self._empire_row_hit_width = 540
         self.popup = EmpirePopup()
@@ -52,6 +54,8 @@ class Renderer:
         self._ship_font_cache.clear()
         self._ship_label_cache.clear()
         self._fleet_label_cache.clear()
+        self._tooltip_font_key = None
+        self._tooltip_label_font_key = None
 
     def update_shake(self, dt: float) -> None:
         self.shake_timer = max(0.0, self.shake_timer - dt)
@@ -97,6 +101,7 @@ class Renderer:
         self._draw_nuke_target_preview(galaxy, player, shake_camera)
         self._draw_top_bar(galaxy, player, paused, speed)
         self._draw_bottom_bar(galaxy, player)
+        self._draw_hover_tooltip(galaxy, player)
         self._draw_camera_info(camera)
         self._draw_game_state(galaxy)
         self.popup.draw(self.screen)
@@ -613,6 +618,82 @@ class Renderer:
             label = self._get_ship_label(font_size, str(int(system.ships)))
             self.screen.blit(label, (sx + dr + 5, sy - 8))
 
+    def _tooltip_lines(self, galaxy, system) -> list[str]:
+        if system.owner_id is None:
+            owner_name = "Unclaimed"
+        else:
+            owner_name = galaxy.empires[system.owner_id].name
+        reachable = len(galaxy.reachable_system_ids(system.id))
+        return [
+            system.name,
+            f"Owner: {owner_name}",
+            f"Ships: {int(system.ships)}",
+            f"Production: {system.production:.2f}/s",
+            f"Gun range: {gun_range(system):.0f}",
+            f"Hyperlanes: {len(galaxy.neighbors[system.id])}",
+            f"Reachable systems: {reachable}",
+        ]
+
+    def _draw_hover_tooltip(self, galaxy, player) -> None:
+        hovered_id = player.hovered_system_id
+        if hovered_id is None:
+            return
+        if self.popup.visible:
+            return
+
+        system = galaxy.systems[hovered_id]
+        lines = self._tooltip_lines(galaxy, system)
+
+        zoom = self.camera['zoom']
+        offset_x = self.camera['offset_x']
+        offset_y = self.camera['offset_y']
+        anchor_x = int(system.pos.x * zoom + offset_x)
+        anchor_y = int(system.pos.y * zoom + offset_y)
+
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+        bar_top = sh - int(ui.bottom_bar_height)
+
+        if self._tooltip_label_font_key != self._font_size:
+            self._tooltip_label_font_key = self._font_size
+            self._tooltip_label_font = pygame.font.Font(None, self._font_size[0])
+        if self._tooltip_font_key != self._font_size:
+            self._tooltip_font_key = self._font_size
+            self._tooltip_font = pygame.font.Font(None, self._font_size[1])
+
+        title_font = self._tooltip_label_font
+        body_font = self._tooltip_font
+
+        surfaces = [
+            title_font.render(lines[0], True, config.TEXT),
+        ]
+        surfaces.extend(
+            body_font.render(line, True, config.MUTED_TEXT)
+            for line in lines[1:]
+        )
+
+        pad = 10
+        gap = 3
+        width = max(surface.get_width() for surface in surfaces) + pad * 2
+        height = sum(surface.get_height() for surface in surfaces) + gap * (len(surfaces) - 1) + pad * 2
+
+        box_x = anchor_x + 18
+        box_y = anchor_y - height // 2
+        if box_x + width > sw - 8:
+            box_x = anchor_x - 18 - width
+        box_x = max(8, min(box_x, sw - width - 8))
+        box_y = max(config.TOP_BAR_HEIGHT + 8, min(box_y, bar_top - height - 8))
+
+        panel = pygame.Surface((width, height), pygame.SRCALPHA)
+        panel.fill((*config.PANEL, 225))
+        pygame.draw.rect(panel, (*config.LANE_HIGHLIGHT, 200), panel.get_rect(), 2, border_radius=8)
+        self.screen.blit(panel, (box_x, box_y))
+
+        cursor_y = box_y + pad
+        for surface in surfaces:
+            self.screen.blit(surface, (box_x + pad, cursor_y))
+            cursor_y += surface.get_height() + gap
+
     def _fleet_order_label(self, player):
         if player.use_percent:
             return f"Fleet order: {player.send_percent}%"
@@ -699,35 +780,7 @@ class Renderer:
             message = self.small_font.render(player.message, True, config.SELECTION_COLOR)
             self.screen.blit(message, message.get_rect(midbottom=(sw // 2, bottom_y - 6)))
 
-        self._draw_selection_panel(galaxy, player, bottom_y, pad_top, available)
         self._draw_empire_panel(galaxy, bottom_y, pad_top, empire_row_h, self._empire_title_font, self._empire_row_font)
-
-    def _draw_selection_panel(self, galaxy, player, y, pad_top, available):
-        selected_id = player.selected_system_id
-        if galaxy.autopilot:
-            lines = ["Autopilot engaged", "Your empire is controlled by the AI.", "Open your empire in the Galactic Powers list", "to regain control."]
-        elif selected_id is None:
-            lines = ["No system selected", "Left-click one of your systems.", "Right-click a reachable system to send a fleet.", "Middle-click any system to toggle a gathering point."]
-        else:
-            system = galaxy.systems[selected_id]
-            reachable = len(galaxy.reachable_system_ids(selected_id))
-            lines = [system.name, f"Ships: {int(system.ships)}", f"Production: {system.production:.2f}/s", f"Gun range: {gun_range(system):.0f}", f"Hyperlanes: {len(galaxy.neighbors[system.id])}", f"Reachable systems: {reachable}", self._fleet_order_label(player)]
-
-        row_height = max(10, available // len(lines))
-        longest_line = max(lines, key=len)
-
-        font_key = (row_height, longest_line)
-        if self._selection_font_key != font_key:
-            self._selection_font_key = font_key
-            self._selection_body_font = self._fit_font(row_height, longest_line)
-        body_font = self._selection_body_font
-
-        cursor_y = y + pad_top
-        for index, line in enumerate(lines):
-            color = config.TEXT if index == 0 else config.MUTED_TEXT
-            surface = body_font.render(line, True, color)
-            self.screen.blit(surface, (18, cursor_y))
-            cursor_y += row_height
 
     def _draw_empire_panel(self, galaxy, y, pad_top, row_height, title_font, row_font):
         sw = self.screen.get_width()
