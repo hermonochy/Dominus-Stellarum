@@ -754,10 +754,7 @@ class Renderer:
             color = empire.color
             marker = "YOU" if empire.is_player else "AI"
             autopilot_tag = " [AUTO]" if empire.is_player and galaxy.autopilot else ""
-            mood, mood_color = self._happiness_label(empire.happiness)
-            mood_tag = "" if empire.is_player else f"  ({mood})"
-            missiles = f"  {empire.missiles_remaining} nukes" if empire.missiles_remaining > 0 else ""
-            text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships{missiles}  {int(empire.happiness)}%{mood_tag}"
+            text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships"
             surface = row_font.render(text, True, color)
             self.screen.blit(surface, surface.get_rect(right=right_edge, top=cursor_y))
             row_rect = pygame.Rect(right_edge - hit_width, cursor_y, hit_width, row_height)
