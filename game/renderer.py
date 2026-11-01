@@ -783,9 +783,7 @@ class Renderer:
         self._draw_empire_panel(galaxy, bottom_y, pad_top, empire_row_h, self._empire_title_font, self._empire_row_font)
 
     def _draw_empire_panel(self, galaxy, y, pad_top, row_height, title_font, row_font):
-        sw = self.screen.get_width()
-        right_margin = 18
-        right_edge = sw - right_margin
+        left_margin = 18
         cursor_y = y + pad_top
 
         ranked = sorted(
@@ -795,11 +793,11 @@ class Renderer:
         )
 
         heading = title_font.render("GALACTIC POWERS", True, config.TEXT)
-        self.screen.blit(heading, heading.get_rect(right=right_edge, top=cursor_y))
+        self.screen.blit(heading, heading.get_rect(midleft=(left_margin, cursor_y)))
         cursor_y += row_height
 
         self._empire_row_rects = []
-        hit_width = min(self._empire_row_hit_width, sw - 36)
+        hit_width = min(self._empire_row_hit_width, self.screen.get_width() - left_margin - 36)
 
         for rank, empire in enumerate(ranked, start=1):
             systems = galaxy.empire_system_count(empire.id)
@@ -809,8 +807,8 @@ class Renderer:
             autopilot_tag = " [AUTO]" if empire.is_player and galaxy.autopilot else ""
             text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships"
             surface = row_font.render(text, True, color)
-            self.screen.blit(surface, surface.get_rect(right=right_edge, top=cursor_y))
-            row_rect = pygame.Rect(right_edge - hit_width, cursor_y, hit_width, row_height)
+            self.screen.blit(surface, surface.get_rect(midleft=(left_margin, cursor_y)))
+            row_rect = pygame.Rect(left_margin, cursor_y, hit_width, row_height)
             self._empire_row_rects.append((row_rect, empire))
             cursor_y += row_height
 
