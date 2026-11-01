@@ -14,7 +14,7 @@ class Empire:
     alive: bool = True
     missiles_remaining: int = 0
     happiness: float = 50.0
-    unrest_tolerance: float = 1.0 
+    unrest_tolerance: float = 1.0
     is_rebel: bool = False
 
 
@@ -26,6 +26,7 @@ class StarSystem:
     production: float
     ships: float
     owner_id: Optional[int] = None
+    hidden_nukes: int = 0
 
 
 @dataclass

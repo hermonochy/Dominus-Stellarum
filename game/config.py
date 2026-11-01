@@ -175,6 +175,10 @@ NUCLEAR_SPITE_SYSTEM_THRESHOLD = 3
 NUCLEAR_PRODUCTION_DAMAGE = 0.9
 NUCLEAR_PRODUCTION_TARGET_WEIGHT = 150.0
 
+NUCLEAR_DEPOT_CHANCE = 0.01
+NUCLEAR_DEPOT_MIN = 1
+NUCLEAR_DEPOT_MAX = 3
+
 HAPPINESS_MAX = 100.0
 DEFAULT_HAPPINESS = 50.0
 HAPPINESS_PEACETIME_RECOVERY = 0.5
@@ -220,7 +224,7 @@ SEND_PERCENT_STEP = 10
 MIN_SEND_PERCENT = 10
 MAX_SEND_PERCENT = 100
 
-SIM_SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0]
+SIM_SPEEDS = [1.0, 2.0, 4.0, 8.0, 16.0]
 DEFAULT_SPEED_INDEX = SIM_SPEEDS.index(1.0)
 
 DIFFICULTY_PRESETS = {
@@ -293,10 +297,11 @@ DIFFICULTY_PRESETS = {
 DEFAULT_DIFFICULTY_INDEX = 1
 
 EMPIRES = [
-    ["Terran Empire", (70, 170, 255), 4, 70],
-    ["Crimson Dominion", (240, 80, 80), 10, 35],
-    ["Emerald Empire", (90, 215, 125), 2, 85],
-    ["Hand of the Void", (0, 0, 0), 8, 95],
+    # [name, colour, inital_nuke_count, initial_happiness]
+    ["Terran Empire", (70, 170, 255), 0, 70],
+    ["Crimson Dominion", (240, 80, 80), 0, 35],
+    ["Emerald Empire", (90, 215, 125), 0, 85],
+    ["Hand of the Void", (0, 0, 0), 3, 95],
     ["Solar Ascendancy", (245, 185, 65), 2, 60],
     ["Violet Directorate", (185, 105, 245), 4, 50],
     ["Rose Republic", (240, 110, 200), 2, 80],

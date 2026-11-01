@@ -1,3 +1,4 @@
+# galaxy.py
 from __future__ import annotations
 
 import math
@@ -69,6 +70,7 @@ class Galaxy:
         self._combat_tick_accum = 0.0
         self._gather_dispatch_timers.clear()
         self._create_systems()
+        self._place_nuclear_depots()
         self._create_empires()
         self._place_empires()
         self._build_spatial_grid()
@@ -260,6 +262,13 @@ class Galaxy:
 
         self._build_lanes(positions)
 
+    def _place_nuclear_depots(self) -> None:
+        depot_count = max(1, int(len(self.systems) * config.NUCLEAR_DEPOT_CHANCE))
+        depot_indices = self.rng.sample(range(len(self.systems)), depot_count)
+        for idx in depot_indices:
+            nukes = self.rng.randint(config.NUCLEAR_DEPOT_MIN, config.NUCLEAR_DEPOT_MAX)
+            self.systems[idx].hidden_nukes = nukes
+
     def _build_lanes(self, positions: list[pygame.Vector2]) -> None:
         n = len(positions)
         parent = list(range(n))
@@ -433,6 +442,7 @@ class Galaxy:
         def place(system: StarSystem, empire_id: int) -> None:
             system.owner_id = empire_id
             system.ships = config.STARTING_SHIPS
+            self._claim_depots(system, empire_id)
             chosen.append(system.id)
 
         def min_dist_to_placed(system: StarSystem) -> float:
@@ -478,6 +488,15 @@ class Galaxy:
             best = max(candidates, key=min_dist_to_placed)
             place(best, empire_id)
             empire_id += 1
+
+    def _claim_depots(self, system: StarSystem, empire_id: int) -> None:
+        if system.hidden_nukes > 0:
+            empire = self.empires[empire_id]
+            count = system.hidden_nukes
+            empire.missiles_remaining += count
+            system.hidden_nukes = 0
+            if empire.is_player:
+                self.pending_messages.append(f"Depot discovered at {system.name}: +{count} nuclear missiles!")
 
     def _empire_production_efficiency(self, owned_count: int, total_systems: int) -> float:
         if total_systems <= 0:
@@ -832,6 +851,7 @@ class Galaxy:
                 continue
             empire = self.empires[system.owner_id]
             empire.happiness = min(config.HAPPINESS_MAX, empire.happiness + config.SYSTEM_CAPTURE_HAPPINESS_GAIN)
+            self._claim_depots(system, system.owner_id)
         self._prev_owners = {system.id: system.owner_id for system in self.systems}
 
     def _update_fleets(self, dt: float) -> None:
@@ -1072,6 +1092,7 @@ class Galaxy:
         new_owner = best.owner_id
         system.owner_id = new_owner
         self.gathering_points.discard(system.id)
+        self._claim_depots(system, new_owner)
         if empire.is_player:
             self.pending_messages.append(f"{system.name} has defected to the {self.empires[new_owner].name}!")
         elif new_owner == config.PLAYER_ID:
@@ -1179,6 +1200,7 @@ class Galaxy:
                 for system in defector_list:
                     system.owner_id = nearest_rebel.id
                     self.gathering_points.discard(system.id)
+                    self._claim_depots(system, nearest_rebel.id)
                 if empire.is_player:
                     self.pending_messages.append(
                         f"{len(defector_list)} systems in your {spark.name} sector have defected to the {nearest_rebel.name}!"
@@ -1204,6 +1226,7 @@ class Galaxy:
         for system in defector_list:
             system.owner_id = rebel.id
             self.gathering_points.discard(system.id)
+            self._claim_depots(system, rebel.id)
 
         if empire.is_player:
             self.pending_messages.append(
