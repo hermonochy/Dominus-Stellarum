@@ -1,4 +1,3 @@
-# app.py
 import pygame
 
 from . import config
@@ -106,6 +105,9 @@ class GameApp:
                 self.running = False
                 return
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                if self.menu.page == "controls":
+                    self.menu.go_back()
+                    continue
                 self.running = False
                 return
             if event.type == pygame.VIDEORESIZE and not self.fullscreen:

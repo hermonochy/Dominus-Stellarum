@@ -1,4 +1,3 @@
-# renderer.py
 import math
 import pygame
 

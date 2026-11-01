@@ -1,4 +1,3 @@
-# popup.py
 import pygame
 
 from . import config

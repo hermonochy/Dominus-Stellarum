@@ -5,7 +5,7 @@ bar_dragging: bool = False
 
 
 def clamp_bar_height(value: float, screen_height: int) -> float:
-    max_height = screen_height * 0.45
+    max_height = screen_height * 0.4
     return max(
         float(config.BOTTOM_BAR_MIN_HEIGHT),
         min(max_height, value),
