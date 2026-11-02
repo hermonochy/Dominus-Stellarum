@@ -176,7 +176,7 @@ class PlayerController:
         elif self.galaxy.autopilot:
             self._set_message("Command ship deselected. The AI still controls fleet orders.")
         else:
-            self._set_message("Fleet control selected. Left-click a system to command troops.")
+            self._set_message("Fleet control selected.")
 
     def _right_click(
         self,
@@ -187,7 +187,7 @@ class PlayerController:
             return
         empire = self.galaxy.empires[config.PLAYER_ID]
         if not self.galaxy.command.can_order(config.PLAYER_ID):
-            self._set_message(f"Command offline. {empire.command_lockout:.0f}s until AI succession.")
+            self._set_message(f"Command disabled. {empire.command_lockout:.0f}s until AI succession.")
             return
         if self.command_mode:
             world_pos = self._convert_screen_to_world(position, camera)
@@ -288,7 +288,7 @@ class PlayerController:
         if self.galaxy.autopilot or self.galaxy.player_succession_complete:
             return
         if not self.galaxy.command.can_order(config.PLAYER_ID):
-            self._set_message("Command offline. Nuclear launch unavailable.")
+            self._set_message("Command disabled. Nuclear launch unavailable.")
             return
         self.command_mode = False
         if self.nuke_targeting:

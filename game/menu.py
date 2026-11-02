@@ -61,8 +61,7 @@ HELP_CONTENT = [
     ("heading", "COMMAND SHIP AND CAPITAL"),
     ("text", "Press L to select or deselect your command ship. While selected, right-click a friendly connected system to move it. The command ship cannot conquer planets and does not consume troop fleets."),
     ("text", "Your capital is the friendly planet where the command ship is docked. During transit, the capital travels with the ship. Command ships can be destroyed by incidental enemy fire while moving, nuclear blasts, or the capture of their current planet."),
-    ("text", "Losing a command ship blocks all new orders for 30 simulation seconds. An AI successor then takes command and establishes a new capital. Every empire follows the same rule."),
-    ("text", "For testing, enemy capitals and travelling command ships are visible on the map and in empire dossiers. AI decisions never use this hidden information; disable COMMAND_SHOW_ENEMY_CAPITALS in config.py to hide them again."),
+    ("text", f"Losing a command ship blocks all new orders for {int(config.COMMAND_DISRUPTION_DURATION)} simulation seconds. An AI successor then takes command and establishes a new capital. Every empire follows the same rule."),
     ("text", "Delegating your empire to the AI gives it control of regular fleets and nuclear orders only. You remain in charge of your own command ship: press L and right-click a friendly world to move it, even while the AI general commands your troops."),
     ("gap", ""),
     ("heading", "FLEET ORDERS"),
@@ -89,7 +88,7 @@ HELP_CONTENT = [
     ("gap", ""),
 
     ("heading", "INTERFACE"),
-    ("text", "Hover a system to inspect its owner, garrison, production, gun range and hyperlanes. Click an empire in the bottom bar to open its dossier — from your own dossier you can delegate your empire to the AI autopilot."),
+    ("text", "Hover a system to inspect its owner, garrison, production, gun range and hyperlanes. Click an empire in the bottom bar to open its dossier."),
     ("text", "Drag the divider above the bottom bar to resize the empire rankings panel. Pan with middle-drag or the arrow keys, and zoom with the mouse wheel."),
     ("gap", ""),
 
@@ -373,7 +372,7 @@ class MainMenu:
         )
         screen.blit(subtitle, subtitle.get_rect(center=(sw // 2, int(sh * 0.13))))
 
-        content_width = min(900, sw - 140)
+        content_width = min(config.HELP_CONTENT_WIDTH, sw - 140)
         left = sw // 2 - content_width // 2
 
         self._back_rect = pygame.Rect(0, 0, 220, 48)

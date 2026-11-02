@@ -161,7 +161,7 @@ class GameApp:
             self.player.nuke_targeting = False
             self.player._set_message("Fleet orders delegated to AI. You still control your command ship with L.")
         else:
-            self.player._set_message("Fleet control restored. Your command ship remains yours.")
+            self.player._set_message("Fleet control restored.")
 
     def _empire_row_click(self, pos):
         if pos[1] < self.screen.get_height() - int(ui.bottom_bar_height):
