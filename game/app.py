@@ -42,7 +42,6 @@ class GameApp:
 
         self.renderer = Renderer(self.screen, self.camera)
         self.renderer.popup.on_close = self._on_popup_closed
-        self.renderer.popup.on_action = self._on_popup_action
         self.running = True
         self.paused = False
         self._paused_before_popup = False
@@ -151,12 +150,10 @@ class GameApp:
     def _on_popup_closed(self):
         self.paused = self._paused_before_popup
 
-    def _on_popup_action(self, action_id, empire):
-        if action_id != "toggle_autopilot":
+    def _toggle_autopilot(self):
+        if self.galaxy.player_succession_complete:
             return
-        if empire is None or not empire.is_player:
-            return
-        if self.galaxy.player_succession_complete or not self.galaxy.command.can_order(config.PLAYER_ID):
+        if not self.galaxy.command.can_order(config.PLAYER_ID):
             return
         self.galaxy.autopilot = not self.galaxy.autopilot
         if self.galaxy.autopilot:
@@ -257,6 +254,10 @@ class GameApp:
 
         if key == pygame.K_r:
             self._new_game()
+            return True
+
+        if key == pygame.K_a:
+            self._toggle_autopilot()
             return True
 
         if key == pygame.K_SPACE:

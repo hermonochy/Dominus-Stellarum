@@ -2,24 +2,14 @@ import pygame
 
 from . import config
 
-class PopupButton:
-    def __init__(self, label: str, action_id: str, enabled: bool = True):
-        self.label = label
-        self.action_id = action_id
-        self.enabled = enabled
-        self.rect = None
-
 class EmpirePopup:
     def __init__(self):
         self.visible = False
         self.empire = None
         self.galaxy = None
-        self.buttons = []
         self.on_close = None
-        self.on_action = None
         self.panel_rect = None
         self.close_rect = None
-        self.action_area = None
         self._cache = {}
 
     def open(self, empire, galaxy):
@@ -27,7 +17,6 @@ class EmpirePopup:
         self.empire = empire
         self.galaxy = galaxy
         self._cache = {}
-        self._build_buttons()
 
     def close(self):
         if not self.visible:
@@ -35,28 +24,11 @@ class EmpirePopup:
         self.visible = False
         self.empire = None
         self.galaxy = None
-        self.buttons = []
         self.panel_rect = None
         self.close_rect = None
-        self.action_area = None
         self._cache = {}
         if self.on_close is not None:
             self.on_close()
-
-    def _build_buttons(self):
-        self.buttons = []
-        if self.empire is None or self.galaxy is None:
-            return
-        if not self.empire.is_player or not self.galaxy.command.can_order(self.empire.id):
-            return
-        autopilot_active = self.galaxy.autopilot
-        label = "Regain control" if autopilot_active else "Delegate to AI"
-        self.buttons = [PopupButton(label, "toggle_autopilot")]
-
-    def _activate(self, button):
-        if self.on_action is not None:
-            self.on_action(button.action_id, self.empire)
-        self._build_buttons()
 
     def handle_event(self, event):
         if not self.visible:
@@ -74,10 +46,6 @@ class EmpirePopup:
             if self.close_rect is not None and self.close_rect.collidepoint(event.pos):
                 self.close()
                 return True
-            for button in self.buttons:
-                if button.enabled and button.rect is not None and button.rect.collidepoint(event.pos):
-                    self._activate(button)
-                    return True
             return True
         return True
 
@@ -252,21 +220,17 @@ class EmpirePopup:
         hint = self._get_text("Click outside or press Esc to close", tiny_size, config.MUTED_TEXT)
         screen.blit(hint, hint.get_rect(center=(panel_rect.centerx, footer_y - hint.get_height() // 2)))
 
-        action_bottom = footer_y - hint.get_height() - int(12 * scale)
-        pygame.draw.line(
-            screen,
-            config.LANE_COLOR,
-            (content_left, action_bottom),
-            (content_left + content_width, action_bottom),
-            2,
-        )
-        self.action_area = pygame.Rect(
-            content_left,
-            action_bottom + int(8 * scale),
-            content_width,
-            max(24, int(pad * 0.8)),
-        )
-        self._draw_buttons(screen)
+        if player_command and not self.galaxy.player_succession_complete:
+            autopilot_hint = self._get_text(
+                "Press A to toggle autopilot",
+                tiny_size,
+                config.SELECTION_COLOR,
+            )
+            autopilot_rect = autopilot_hint.get_rect(
+                midbottom=(panel_rect.centerx, footer_y - hint.get_height() - 8)
+            )
+            pygame.draw.rect(screen, config.PANEL_LIGHT, autopilot_rect.inflate(10, 4), border_radius=3)
+            screen.blit(autopilot_hint, autopilot_rect)
 
         close_center = (panel_rect.right - pad, panel_rect.top + pad)
         close_r = max(12, int(13 * scale))
@@ -277,39 +241,3 @@ class EmpirePopup:
         pygame.draw.line(screen, config.TEXT, (close_center[0] - d, close_center[1] + d), (close_center[0] + d, close_center[1] - d), 2)
         self.close_rect = pygame.Rect(0, 0, close_r * 2 + 8, close_r * 2 + 8)
         self.close_rect.center = close_center
-
-    def _draw_buttons(self, screen):
-        if not self.buttons or self.action_area is None:
-            return
-
-        sw = screen.get_width()
-        sh = screen.get_height()
-        scale = min(sw / 1280, sh / 800, 1.5)
-        size = max(16, int(22 * scale))
-        padding = max(8, int(12 * scale))
-        gap = max(8, int(10 * scale))
-
-        cursor_x = self.action_area.left
-        for button in self.buttons:
-            color = config.TEXT if button.enabled else config.MUTED_TEXT
-            surface = self._get_text(button.label, size, color)
-            rect = pygame.Rect(
-                cursor_x,
-                self.action_area.top,
-                surface.get_width() + padding * 2,
-                surface.get_height() + padding,
-            )
-            pygame.draw.rect(screen, config.PANEL_LIGHT, rect, border_radius=6)
-            pygame.draw.rect(
-                screen,
-                config.LANE_HIGHLIGHT if button.enabled else config.LANE_COLOR,
-                rect,
-                2,
-                border_radius=6,
-            )
-            screen.blit(
-                surface,
-                (rect.centerx - surface.get_width() // 2, rect.centery - surface.get_height() // 2),
-            )
-            button.rect = rect
-            cursor_x += rect.width + gap

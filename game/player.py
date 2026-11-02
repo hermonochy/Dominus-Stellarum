@@ -92,22 +92,23 @@ class PlayerController:
         event: pygame.event.Event,
         camera: dict,
     ) -> None:
-        if self.galaxy.player_succession_complete:
-            return
-
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
-                if self.galaxy.autopilot:
-                    return
                 if self._in_drag_zone(event.pos):
                     ui.bar_dragging = True
                     return
                 if self._over_bottom_bar(event.pos):
                     return
+                if self.galaxy.player_succession_complete:
+                    return
+                if self.galaxy.autopilot:
+                    return
                 self._left_click(event.pos, camera)
 
             elif event.button == 3:
                 if self._over_bottom_bar(event.pos):
+                    return
+                if self.galaxy.player_succession_complete:
                     return
                 if self.galaxy.autopilot and not self.command_mode:
                     return
