@@ -661,7 +661,7 @@ class Galaxy:
     def launch_player_nuclear(self, target_id: int) -> tuple[bool, str]:
         empire = self.empires[config.PLAYER_ID]
         if not self.command.can_order(config.PLAYER_ID) or self.player_succession_complete:
-            return False, "Your command is offline."
+            return False, "Your command is disabled."
         if empire.missiles_remaining <= 0:
             return False, "You have no missiles remaining."
         if self.nuclear_cooldown > 0.0:
@@ -1381,10 +1381,24 @@ class Galaxy:
         winner = self.winner()
         return (
             not self.player_succession_complete
-            and self.empires[config.PLAYER_ID].command_lockout <= 0.0
+            and self.empires[config.PLAYER_ID].alive
             and winner is not None
             and winner.id == config.PLAYER_ID
         )
+
+    def player_succeeded_by_own_empire(self) -> bool:
+        """True when the player is dead but their former empire is the winner."""
+        if not self.player_succession_complete:
+            return False
+        winner = self.winner()
+        return winner is not None and winner.id == config.PLAYER_ID
+
+    def player_eliminated_and_lost(self) -> bool:
+        """True when the player is dead and some other empire won."""
+        if not self.player_succession_complete:
+            return False
+        winner = self.winner()
+        return winner is not None and winner.id != config.PLAYER_ID
 
     def _build_spatial_grid(self) -> None:
         cell_size = self.grid_cell_size

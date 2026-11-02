@@ -32,27 +32,6 @@ class CommandDirector:
         empire = self.galaxy.empires[empire_id]
         return empire.alive and empire.command_lockout <= 0.0 and empire_id in self.ships
 
-    def _friendly_route(self, start: int, destination: int, empire_id: int) -> tuple[int, ...] | None:
-        if self.galaxy.systems[start].owner_id != empire_id:
-            return None
-        if self.galaxy.systems[destination].owner_id != empire_id:
-            return None
-        previous: dict[int, int | None] = {start: None}
-        queue = deque([start])
-        while queue:
-            current = queue.popleft()
-            if current == destination:
-                path = []
-                while current is not None:
-                    path.append(current)
-                    current = previous[current]
-                return tuple(reversed(path))
-            for neighbor in self.galaxy.neighbors.get(current, ()):
-                if neighbor not in previous and self.galaxy.systems[neighbor].owner_id == empire_id:
-                    previous[neighbor] = current
-                    queue.append(neighbor)
-        return None
-
     def reachable_owned_from(self, system_id: int, empire_id: int) -> set[int]:
         if self.galaxy.systems[system_id].owner_id != empire_id:
             return set()
@@ -70,9 +49,11 @@ class CommandDirector:
         ship = self.get(empire_id)
         if ship is None or ship.system_id is None:
             return set()
-        reachable = self.reachable_owned_from(ship.system_id, empire_id)
-        reachable.discard(ship.system_id)
-        return reachable
+        return {
+            system.id
+            for system in self.galaxy.systems
+            if system.owner_id == empire_id and system.id != ship.system_id
+        }
 
     def _depths(self, empire_id: int) -> dict[int, int]:
         owned = {node.id for node in self.galaxy.systems if node.owner_id == empire_id}
@@ -146,10 +127,12 @@ class CommandDirector:
     def move(self, empire_id: int, target_id: int) -> bool:
         if not self.can_order(empire_id) or target_id < 0 or target_id >= len(self.galaxy.systems):
             return False
+        if self.galaxy.systems[target_id].owner_id != empire_id:
+            return False
         ship = self.ships[empire_id]
         if ship.system_id is None or ship.system_id == target_id:
             return False
-        route = self._friendly_route(ship.system_id, target_id, empire_id)
+        route = self.galaxy.shortest_path(ship.system_id, target_id)
         if route is None or len(route) < 2:
             return False
         ship.system_id = None
@@ -208,10 +191,10 @@ class CommandDirector:
                 return
             if ship.segment_progress < 1.0:
                 break
-            if target.owner_id != ship.owner_id:
-                self.lose(ship.owner_id, "intercepted in hostile territory")
-                return
             if ship.route_index == len(ship.route) - 1:
+                if target.owner_id != ship.owner_id:
+                    self.lose(ship.owner_id, "lost when its destination was overrun")
+                    return
                 ship.system_id = target.id
                 ship.destination_id = None
                 ship.route = ()

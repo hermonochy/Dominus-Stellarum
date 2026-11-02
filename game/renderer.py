@@ -386,7 +386,7 @@ class Renderer:
     def _draw_command_ships(self, galaxy, player, camera):
         zoom = camera['zoom']
         for empire_id, ship in galaxy.command.ships.items():
-            player_ship = empire_id == config.PLAYER_ID and not galaxy.player_succession_complete
+            player_ship = empire_id == config.PLAYER_ID
             if not player_ship and not config.COMMAND_SHOW_ENEMY_CAPITALS:
                 continue
             center = (
@@ -396,7 +396,7 @@ class Renderer:
             if not (-80 <= center[0] <= self.screen.get_width() + 80 and -80 <= center[1] <= self.screen.get_height() + 80):
                 continue
             size = max(6, min(18, int(10 * zoom)))
-            color = config.COMMAND_SHIP_COLOR if player_ship else galaxy.empires[empire_id].color
+            color = galaxy.empires[empire_id].color
             if sum(color) < 180:
                 color = config.COMMAND_DARK_EMPIRE_MARKER_COLOR
             ring_radius = size + (8 if ship.system_id is not None else 4)
@@ -416,13 +416,6 @@ class Renderer:
                 panel = label_pos.inflate(8, 4)
                 pygame.draw.rect(self.screen, config.PANEL, panel, border_radius=3)
                 self.screen.blit(label, label_pos)
-            if player_ship and player.command_mode and ship.destination_id is not None:
-                destination = galaxy.systems[ship.destination_id]
-                target = (
-                    int(destination.pos.x * zoom + camera['offset_x']),
-                    int(destination.pos.y * zoom + camera['offset_y']),
-                )
-                pygame.draw.line(self.screen, color, center, target, 1)
 
     def _draw_missile(self, galaxy, fleet, sx: int, sy: int, zoom: float) -> None:
         pulse = (math.sin(self.warn_flash_phase * 12.0) + 1.0) * 0.5
@@ -679,6 +672,8 @@ class Renderer:
         if system.owner_id is not None and galaxy.command.capital(system.owner_id) == system.id:
             if system.owner_id == config.PLAYER_ID and not galaxy.player_succession_complete:
                 lines.append("YOUR CAPITAL - Command ship docked")
+            elif system.owner_id == config.PLAYER_ID:
+                lines.append("FORMER CAPITAL - Command ship docked")
             elif config.COMMAND_SHOW_ENEMY_CAPITALS:
                 lines.append("CAPITAL - Command ship docked (testing)")
         return lines
@@ -860,7 +855,7 @@ class Renderer:
             color = empire.color
             marker = "YOU" if empire.is_player else "AI"
             if empire.command_lockout > 0.0:
-                marker += " OFFLINE"
+                marker += " DISABLED"
             autopilot_tag = " [AUTO]" if empire.is_player and galaxy.autopilot else ""
             text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships"
             surface = row_font.render(text, True, color)
@@ -880,9 +875,11 @@ class Renderer:
             return
         if galaxy.player_won():
             self._draw_end_screen("VICTORY", "You control the galaxy. Press R to start anew.")
+        elif winner is not None and winner.id == config.PLAYER_ID and galaxy.player_succession_complete:
+            self._draw_end_screen("YOU LOST!", "You died! Your empire conquered the galaxy without you. Press R to try again.")
         elif winner is not None:
             self._draw_end_screen("DEFEAT", f"The {winner.name} rules the galaxy. Press R to try again.")
-
+            
     def _draw_end_screen(self, title, subtitle):
         overlay = pygame.Surface(
             (self.screen.get_width(), self.screen.get_height()),
