@@ -47,7 +47,7 @@ class EmpirePopup:
         self.buttons = []
         if self.empire is None or self.galaxy is None:
             return
-        if not self.empire.is_player:
+        if not self.empire.is_player or not self.galaxy.command.can_order(self.empire.id):
             return
         autopilot_active = self.galaxy.autopilot
         label = "Regain control" if autopilot_active else "Delegate to AI"
@@ -215,6 +215,26 @@ class EmpirePopup:
         )
         screen.blit(mood, (content_left, cursor_y))
         cursor_y += mood.get_height() + int(14 * scale)
+
+        if (empire.id == config.PLAYER_ID and not self.galaxy.player_succession_complete) or config.COMMAND_SHOW_ENEMY_CAPITALS:
+            ship = self.galaxy.command.get(empire.id)
+            player_command = empire.id == config.PLAYER_ID and not self.galaxy.player_succession_complete
+            if empire.command_lockout > 0.0:
+                command_label = f"Command lost - {empire.command_lockout:.0f}s until AI succession"
+            elif ship is None:
+                command_label = "Command ship unavailable"
+            elif ship.system_id is None:
+                command_label = "Command ship in transit"
+            elif player_command:
+                command_label = f"Your capital: {self.galaxy.systems[ship.system_id].name}"
+            else:
+                command_label = f"Capital (testing): {self.galaxy.systems[ship.system_id].name}"
+            command_color = config.COMMAND_SHIP_COLOR if player_command else empire.color
+            if sum(command_color) < 180:
+                command_color = config.COMMAND_DARK_EMPIRE_MARKER_COLOR
+            command_surface = self._get_text(command_label, small_size, command_color)
+            screen.blit(command_surface, (content_left, cursor_y))
+            cursor_y += command_surface.get_height() + int(8 * scale)
 
         heading = self._get_text("INTELLIGENCE REPORT", small_size, config.SELECTION_COLOR)
         screen.blit(heading, (content_left, cursor_y))

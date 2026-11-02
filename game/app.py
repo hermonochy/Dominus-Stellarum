@@ -138,7 +138,8 @@ class GameApp:
             return False
         if self.renderer.popup.visible:
             return False
-        if self.galaxy.winner() is not None:
+        winner = self.galaxy.winner()
+        if winner is not None and winner.command_lockout <= 0.0:
             return False
         return True
 
@@ -155,12 +156,15 @@ class GameApp:
             return
         if empire is None or not empire.is_player:
             return
+        if self.galaxy.player_succession_complete or not self.galaxy.command.can_order(config.PLAYER_ID):
+            return
         self.galaxy.autopilot = not self.galaxy.autopilot
         if self.galaxy.autopilot:
             self.player.selected_system_id = None
-            self.player._set_message("Your empire is now controlled by the AI.")
+            self.player.nuke_targeting = False
+            self.player._set_message("Fleet orders delegated to AI. You still control your command ship with L.")
         else:
-            self.player._set_message("You have regained control of your empire.")
+            self.player._set_message("Fleet control restored. Your command ship remains yours.")
 
     def _empire_row_click(self, pos):
         if pos[1] < self.screen.get_height() - int(ui.bottom_bar_height):
@@ -284,6 +288,10 @@ class GameApp:
             self.camera['offset_x'] -= 50
             return True
             
+        if key == pygame.K_l:
+            self.player.toggle_command_mode()
+            return True
+
         if key == pygame.K_n:
             if not self.galaxy.autopilot:
                 self.player.toggle_nuke_mode()

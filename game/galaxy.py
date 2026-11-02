@@ -8,6 +8,7 @@ import pygame
 
 from . import config
 from .combat import fire_at_target, gun_range, resolve_fleet_arrival
+from .command import CommandDirector
 from .models import CombatShot, Empire, Explosion, Fleet, StarSystem
 
 class Galaxy:
@@ -26,6 +27,8 @@ class Galaxy:
         self._accum_owner: dict[int, Optional[int]] = {}
         self.active_combat: dict[int, float] = {}
         self.autopilot = False
+        self.player_succession_complete = False
+        self.command = CommandDirector(self)
         self.nuclear_cooldown = 0.0
         self.nuked_grace: dict[int, float] = {}
         self.pending_messages: list[str] = []
@@ -62,6 +65,7 @@ class Galaxy:
         self._accum_owner.clear()
         self.active_combat.clear()
         self.autopilot = False
+        self.player_succession_complete = False
         self.nuclear_cooldown = 0.0
         self.nuked_grace.clear()
         self.pending_messages.clear()
@@ -82,6 +86,7 @@ class Galaxy:
         self._place_nuclear_depots()
         self._create_empires()
         self._place_empires()
+        self.command.initialize()
         self._build_spatial_grid()
         self._prev_owners = {system.id: system.owner_id for system in self.systems}
         for system in self.systems:
@@ -118,6 +123,7 @@ class Galaxy:
         self._update_happiness(dt)
         self._update_rebellions(dt)
         self._update_empire_status()
+        self.command.update(dt)
 
     def _create_systems(self) -> None:
         center = pygame.Vector2(config.GALAXY_CENTER_X, config.GALAXY_CENTER_Y)
@@ -636,6 +642,8 @@ class Galaxy:
 
     def _launch_exact(self, source_id: int, target_id: int, amount: int, route: Optional[tuple[int, ...]] = None) -> bool:
         source = self.systems[source_id]
+        if source.owner_id is None or not self.command.can_order(source.owner_id):
+            return False
         if source.ships < amount:
             return False
         if route is None:
@@ -652,6 +660,8 @@ class Galaxy:
 
     def launch_player_nuclear(self, target_id: int) -> tuple[bool, str]:
         empire = self.empires[config.PLAYER_ID]
+        if not self.command.can_order(config.PLAYER_ID) or self.player_succession_complete:
+            return False, "Your command is offline."
         if empire.missiles_remaining <= 0:
             return False, "You have no missiles remaining."
         if self.nuclear_cooldown > 0.0:
@@ -695,7 +705,7 @@ class Galaxy:
 
     def _launch_nuclear(self, source_id: int, target_id: int, ignore_cooldown: bool = False) -> bool:
         source = self.systems[source_id]
-        if source.owner_id is None:
+        if source.owner_id is None or not self.command.can_order(source.owner_id):
             return False
         empire = self.empires[source.owner_id]
         if empire.missiles_remaining <= 0:
@@ -743,6 +753,7 @@ class Galaxy:
             node.production *= (1.0 - production_damage)
 
     def _detonate(self, system: StarSystem) -> None:
+        self.command.on_nuclear_blast(system.pos, config.NUCLEAR_EFFECT_RADIUS)
         affected = [system]
         for other in self.systems:
             if other.id == system.id:
@@ -865,7 +876,7 @@ class Galaxy:
         if target_id < 0 or target_id >= len(self.systems):
             return False
         source = self.systems[source_id]
-        if source.owner_id is None:
+        if source.owner_id is None or not self.command.can_order(source.owner_id):
             return False
         route = self.shortest_path(source_id, target_id)
         if route is None or len(route) < 2:
@@ -1293,6 +1304,8 @@ class Galaxy:
             self.gathering_points.discard(system.id)
             self._claim_depots(system, rebel.id)
 
+        self.command.establish(rebel.id)
+
         if empire.is_player:
             self.pending_messages.append(
                 f"{len(defector_list)} systems in the {spark.name} sector have risen in revolt! The {rebel.name} declares independence."
@@ -1305,6 +1318,7 @@ class Galaxy:
                 owners.add(system.owner_id)
         for fleet in self.fleets:
             owners.add(fleet.owner_id)
+        owners.update(self.command.ships)
         for empire in self.empires:
             empire.alive = empire.id in owners
 
@@ -1365,7 +1379,12 @@ class Galaxy:
 
     def player_won(self) -> bool:
         winner = self.winner()
-        return winner is not None and winner.id == config.PLAYER_ID
+        return (
+            not self.player_succession_complete
+            and self.empires[config.PLAYER_ID].command_lockout <= 0.0
+            and winner is not None
+            and winner.id == config.PLAYER_ID
+        )
 
     def _build_spatial_grid(self) -> None:
         cell_size = self.grid_cell_size

@@ -96,6 +96,7 @@ class Renderer:
         self._draw_fleets(galaxy, shake_camera)
         self._draw_combat_shots(galaxy, shake_camera)
         self._draw_systems(galaxy, player, shake_camera, valid_targets)
+        self._draw_command_ships(galaxy, player, shake_camera)
         self._draw_missile_warnings(galaxy, shake_camera)
         self._draw_nuke_target_preview(galaxy, player, shake_camera)
         self._draw_top_bar(galaxy, player, paused, speed)
@@ -382,6 +383,47 @@ class Renderer:
             self.screen.blit(bg, (lx - 2, ly - 1))
             self.screen.blit(label, (lx, ly))
 
+    def _draw_command_ships(self, galaxy, player, camera):
+        zoom = camera['zoom']
+        for empire_id, ship in galaxy.command.ships.items():
+            player_ship = empire_id == config.PLAYER_ID and not galaxy.player_succession_complete
+            if not player_ship and not config.COMMAND_SHOW_ENEMY_CAPITALS:
+                continue
+            center = (
+                int(ship.position.x * zoom + camera['offset_x']),
+                int(ship.position.y * zoom + camera['offset_y']),
+            )
+            if not (-80 <= center[0] <= self.screen.get_width() + 80 and -80 <= center[1] <= self.screen.get_height() + 80):
+                continue
+            size = max(6, min(18, int(10 * zoom)))
+            color = config.COMMAND_SHIP_COLOR if player_ship else galaxy.empires[empire_id].color
+            if sum(color) < 180:
+                color = config.COMMAND_DARK_EMPIRE_MARKER_COLOR
+            ring_radius = size + (8 if ship.system_id is not None else 4)
+            pygame.draw.circle(self.screen, color, center, ring_radius, 2 if ship.system_id is not None else 1)
+            points = [
+                (center[0], center[1] - size),
+                (center[0] + size, center[1]),
+                (center[0], center[1] + size),
+                (center[0] - size, center[1]),
+            ]
+            pygame.draw.polygon(self.screen, color, points)
+            pygame.draw.polygon(self.screen, config.BACKGROUND, points, 2)
+            if config.COMMAND_SHOW_ENEMY_CAPITALS:
+                label_text = "CAPITAL" if ship.system_id is not None else "COMMAND SHIP"
+                label = self.small_font.render(label_text, True, color)
+                label_pos = label.get_rect(midbottom=(center[0], center[1] - ring_radius - 5))
+                panel = label_pos.inflate(8, 4)
+                pygame.draw.rect(self.screen, config.PANEL, panel, border_radius=3)
+                self.screen.blit(label, label_pos)
+            if player_ship and player.command_mode and ship.destination_id is not None:
+                destination = galaxy.systems[ship.destination_id]
+                target = (
+                    int(destination.pos.x * zoom + camera['offset_x']),
+                    int(destination.pos.y * zoom + camera['offset_y']),
+                )
+                pygame.draw.line(self.screen, color, center, target, 1)
+
     def _draw_missile(self, galaxy, fleet, sx: int, sy: int, zoom: float) -> None:
         pulse = (math.sin(self.warn_flash_phase * 12.0) + 1.0) * 0.5
         halo_radius = int((8 + pulse * 6) * max(1.0, zoom * 0.5))
@@ -597,6 +639,8 @@ class Renderer:
                 pygame.draw.circle(self.screen, config.VALID_TARGET_COLOR, (sx, sy), int(glow_radius), 2)
             if system.id == hovered_id:
                 pygame.draw.circle(self.screen, (190, 200, 220), (sx, sy), int(radius + 6 * zoom), 2)
+            if player.command_mode and system.id in valid_targets:
+                pygame.draw.circle(self.screen, config.COMMAND_SHIP_COLOR, (sx, sy), int(radius + 15 * zoom), 2)
             if system.id == selected_id:
                 selection_size = radius + 12 * zoom + int(math.sin(pulse_phase * 1.5) * 2 * zoom)
                 pygame.draw.circle(self.screen, config.SELECTION_COLOR, (sx, sy), int(selection_size), 3)
@@ -623,7 +667,7 @@ class Renderer:
         else:
             owner_name = galaxy.empires[system.owner_id].name
         reachable = len(galaxy.reachable_system_ids(system.id))
-        return [
+        lines = [
             system.name,
             f"Owner: {owner_name}",
             f"Ships: {int(system.ships)}",
@@ -632,6 +676,12 @@ class Renderer:
             f"Hyperlanes: {len(galaxy.neighbors[system.id])}",
             f"Reachable systems: {reachable}",
         ]
+        if system.owner_id is not None and galaxy.command.capital(system.owner_id) == system.id:
+            if system.owner_id == config.PLAYER_ID and not galaxy.player_succession_complete:
+                lines.append("YOUR CAPITAL - Command ship docked")
+            elif config.COMMAND_SHOW_ENEMY_CAPITALS:
+                lines.append("CAPITAL - Command ship docked (testing)")
+        return lines
 
     def _draw_hover_tooltip(self, galaxy, player) -> None:
         hovered_id = player.hovered_system_id
@@ -694,6 +744,8 @@ class Renderer:
             cursor_y += surface.get_height() + gap
 
     def _fleet_order_label(self, player):
+        if player.command_mode:
+            return "L: COMMAND SHIP - right-click friendly system"
         if player.use_percent:
             return f"Fleet order: {player.send_percent}%"
         return (
@@ -716,10 +768,14 @@ class Renderer:
     def _draw_top_bar(self, galaxy, player, paused, speed):
         sw = self.screen.get_width()
         pygame.draw.rect(self.screen, config.PANEL, (0, 0, sw, config.TOP_BAR_HEIGHT))
-        state = "AUTOPILOT" if galaxy.autopilot else ("PAUSED" if paused or self.popup.visible else "RUNNING")
+        state = "AI SPECTATOR" if galaxy.player_succession_complete else ("FLEETS: AI | COMMAND: YOU" if galaxy.autopilot else ("PAUSED" if paused or self.popup.visible else "RUNNING"))
         title = self.font.render("DOMINUS STELLARUM", True, config.TEXT)
         self.screen.blit(title, (18, 12))
-        if not galaxy.autopilot and getattr(player, "nuke_targeting", False):
+        lockout = galaxy.empires[config.PLAYER_ID].command_lockout
+        if lockout > 0.0:
+            status_text = f"COMMAND DESTROYED - {lockout:.0f}s TO SUCCESSION - ORDERS DISABLED"
+            status = self.small_font.render(status_text, True, (255, 120, 90))
+        elif not galaxy.autopilot and getattr(player, "nuke_targeting", False):
             status_text = f"{state}   Speed {speed:g}x   NUCLEAR STRIKE ARMED — right-click target, N to disarm"
             status = self.small_font.render(status_text, True, (255, 120, 90))
         else:
@@ -731,7 +787,7 @@ class Renderer:
         player_missiles = player_empire.missiles_remaining
         mood, mood_color = self._happiness_label(player_empire.happiness)
         stats = self.small_font.render(
-            f"Your systems: {player_systems}    Your ships: {player_ships}    Missiles: {player_missiles}",
+            f"{'Former empire' if galaxy.player_succession_complete else 'Your empire'}: {player_systems} systems    Ships: {player_ships}    Missiles: {player_missiles}",
             True,
             player_empire.color,
         )
@@ -803,6 +859,8 @@ class Renderer:
             ships = int(galaxy.empire_ship_count(empire.id))
             color = empire.color
             marker = "YOU" if empire.is_player else "AI"
+            if empire.command_lockout > 0.0:
+                marker += " OFFLINE"
             autopilot_tag = " [AUTO]" if empire.is_player and galaxy.autopilot else ""
             text = f"{rank}. {empire.name} [{marker}]{autopilot_tag}  {systems} sys  {ships} ships"
             surface = row_font.render(text, True, color)
@@ -818,6 +876,8 @@ class Renderer:
 
     def _draw_game_state(self, galaxy):
         winner = galaxy.winner()
+        if winner is not None and winner.command_lockout > 0.0:
+            return
         if galaxy.player_won():
             self._draw_end_screen("VICTORY", "You control the galaxy. Press R to start anew.")
         elif winner is not None:

@@ -15,6 +15,8 @@ class Empire:
     happiness: float = 50.0
     unrest_tolerance: float = 1.0
     is_rebel: bool = False
+    command_lockout: float = 0.0
+    command_losses: int = 0
 
 
 @dataclass
@@ -46,6 +48,18 @@ class Fleet:
     def __post_init__(self):
         if self.position is None:
             self.position = pygame.Vector2(0, 0)
+
+@dataclass
+class CommandShip:
+    owner_id: int
+    system_id: Optional[int]
+    position: pygame.Vector2
+    hull: float
+    route: tuple[int, ...] = ()
+    route_index: int = 1
+    segment_progress: float = 0.0
+    destination_id: Optional[int] = None
+
 
 @dataclass
 class Explosion:

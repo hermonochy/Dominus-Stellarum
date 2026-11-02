@@ -59,7 +59,7 @@ class AIController:
         self.think_timer -= config.AI_THINK_INTERVAL
 
         for empire in self.galaxy.empires:
-            if not empire.alive:
+            if not empire.alive or not self.galaxy.command.can_order(empire.id):
                 continue
             if empire.is_player and not self.galaxy.autopilot:
                 continue
@@ -581,6 +581,7 @@ class AIController:
                 dispatches += 1
 
     def _think_for_empire(self, empire_id: int) -> None:
+        self.galaxy.command.manage_ai(empire_id)
         owned = self.galaxy.empire_system_count(empire_id)
         if owned <= 0:
             return

@@ -19,6 +19,7 @@ class PlayerController:
         self.send_count = 1
         self.use_percent = True
         self.nuke_targeting = False
+        self.command_mode = False
 
         self.message = ""
         self.message_timer = 0.0
@@ -36,6 +37,7 @@ class PlayerController:
         self.send_count = 1
         self.use_percent = True
         self.nuke_targeting = False
+        self.command_mode = False
         self.message = ""
         self.message_timer = 0.0
 
@@ -90,11 +92,13 @@ class PlayerController:
         event: pygame.event.Event,
         camera: dict,
     ) -> None:
-        if self.galaxy.autopilot:
+        if self.galaxy.player_succession_complete:
             return
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
+                if self.galaxy.autopilot:
+                    return
                 if self._in_drag_zone(event.pos):
                     ui.bar_dragging = True
                     return
@@ -104,6 +108,8 @@ class PlayerController:
 
             elif event.button == 3:
                 if self._over_bottom_bar(event.pos):
+                    return
+                if self.galaxy.autopilot and not self.command_mode:
                     return
                 self._right_click(event.pos, camera)
 
@@ -141,6 +147,9 @@ class PlayerController:
             self.selected_system_id = None
             return
 
+        if self.command_mode:
+            self.command_mode = False
+
         if system.owner_id == config.PLAYER_ID:
             self.selected_system_id = system.id
             self._set_message(
@@ -151,11 +160,44 @@ class PlayerController:
                 "You can only select your own systems."
             )
 
+    def toggle_command_mode(self) -> None:
+        if self.galaxy.player_succession_complete:
+            return
+        ship = self.galaxy.command.get(config.PLAYER_ID)
+        if ship is None:
+            self._set_message("No command ship available during the succession crisis.")
+            return
+        self.command_mode = not self.command_mode
+        self.nuke_targeting = False
+        self.selected_system_id = None
+        if self.command_mode:
+            self._set_message("Command ship selected. Right-click a friendly system to relocate.")
+        elif self.galaxy.autopilot:
+            self._set_message("Command ship deselected. The AI still controls fleet orders.")
+        else:
+            self._set_message("Fleet control selected. Left-click a system to command troops.")
+
     def _right_click(
         self,
         position: tuple[int, int],
         camera: dict,
     ) -> None:
+        if self.galaxy.player_succession_complete or (self.galaxy.autopilot and not self.command_mode):
+            return
+        empire = self.galaxy.empires[config.PLAYER_ID]
+        if not self.galaxy.command.can_order(config.PLAYER_ID):
+            self._set_message(f"Command offline. {empire.command_lockout:.0f}s until AI succession.")
+            return
+        if self.command_mode:
+            world_pos = self._convert_screen_to_world(position, camera)
+            target = self.galaxy.system_at(world_pos)
+            if target is None:
+                return
+            if self.galaxy.command.move(config.PLAYER_ID, target.id):
+                self._set_message(f"Command ship relocating to {target.name}.")
+            else:
+                self._set_message("Select a different friendly system reachable through your territory.")
+            return
         if self.nuke_targeting:
             world_pos = self._convert_screen_to_world(position, camera)
             target = self.galaxy.system_at(world_pos)
@@ -242,6 +284,12 @@ class PlayerController:
         )
 
     def toggle_nuke_mode(self) -> None:
+        if self.galaxy.autopilot or self.galaxy.player_succession_complete:
+            return
+        if not self.galaxy.command.can_order(config.PLAYER_ID):
+            self._set_message("Command offline. Nuclear launch unavailable.")
+            return
+        self.command_mode = False
         if self.nuke_targeting:
             self.nuke_targeting = False
             self._set_message("Nuclear strike disarmed.")
@@ -289,6 +337,13 @@ class PlayerController:
         self.message_timer = 2.5
 
     def valid_target_ids(self) -> set[int]:
+        if self.galaxy.player_succession_complete:
+            return set()
+        if self.command_mode:
+            ship = self.galaxy.command.get(config.PLAYER_ID)
+            if ship is None or ship.system_id is None:
+                return set()
+            return self.galaxy.command.reachable_destinations(config.PLAYER_ID)
         if self.selected_system_id is None:
             return set()
         if self.galaxy.autopilot:
@@ -303,7 +358,7 @@ class PlayerController:
         camera: dict,
         screen_pos: tuple[int, int],
     ) -> None:
-        if self.galaxy.autopilot:
+        if self.galaxy.autopilot or not self.galaxy.command.can_order(config.PLAYER_ID):
             return
 
         if self._over_bottom_bar(screen_pos):
