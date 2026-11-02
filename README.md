@@ -7,7 +7,7 @@ A real-time 4X space strategy game built with Python and pygame.
 
 Claim a foothold in a procedurally generated spiral galaxy, expand through a network of hyperlanes, and outmanoeuvre rival empires. Build up your fleets, establish gathering points, unleash nuclear strikes, and keep your population loyal—or risk watching your empire fracture from within.
 
-[**Download a release**](https://github.com/hermonochy/Dominus-Stellarum/releases) · [Report a bug](https://github.com/hermonochy/Dominus-Stellarum/issues) · [View the source](https://github.com/hermonochy/Dominus-Stellarum/game)
+[**Download a release**](https://github.com/hermonochy/Dominus-Stellarum/releases) · [Report a bug](https://github.com/hermonochy/Dominus-Stellarum/issues) · [View the source](https://github.com/hermonochy/Dominus-Stellarum/tree/main/game)
 
 ![](./screenshots/screenshot1.png)
 
@@ -15,9 +15,9 @@ Claim a foothold in a procedurally generated spiral galaxy, expand through a net
 
 ### Download a release
 
-The [Releases page](https://github.com/hermonochy/Dominus-Stellarum/releases) contains packaged builds when available. Download the build for your operating system, and launch the executable.
+The [Releases page](https://github.com/hermonochy/Dominus-Stellarum/releases) contains packaged builds. Download the build for your operating system, and launch the executable.
 
-macOS users may need to run the game from source if a macOS package is not provided for the release.
+macOS users will need to run the game from source until a macOS package can be provided for the release.
 
 ### Building from source
 
