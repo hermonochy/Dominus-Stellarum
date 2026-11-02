@@ -177,7 +177,7 @@ class EmpirePopup:
             else (240, 80, 80)
         )
         mood = stats_font.render(
-            f"Troop Morale: {int(empire.happiness)}% ({self._happiness_word(empire.happiness)})",
+            f"Happiness: {int(empire.happiness)}% ({self._happiness_word(empire.happiness)})",
             True,
             mood_color,
         )
