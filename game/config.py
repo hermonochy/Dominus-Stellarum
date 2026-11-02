@@ -56,7 +56,7 @@ GALAXY_ARM_COUNT = 4
 GALAXY_ARM_PITCH = 2.5
 GALAXY_ARM_WIND = 0.35
 GALAXY_CORE_RATIO = 0.08
-GALAXY_CORE_RADIUS = 120.0
+GALAXY_CORE_RADIUS = 150.0
 GALAXY_BRANCH_RATIO = 0.04
 
 MIN_STAR_DISTANCE = 65
@@ -327,6 +327,7 @@ DIFFICULTY_PRESETS = {
 DEFAULT_DIFFICULTY_INDEX = 1
 
 EMPIRES = [
+    # [name, colour, inital_nuke_count, initial_happiness]
     ["Terran Empire", (70, 170, 255), 0, 70],
     ["Crimson Dominion", (240, 80, 80), 0, 35],
     ["Emerald Empire", (90, 215, 125), 0, 85],
