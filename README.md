@@ -74,12 +74,49 @@ python3 main.py
 
 You begin with a home system and a fleet. Systems under your control produce ships over time. Expand into neutral territory, reinforce vulnerable borders, and attack rival empires. Fleets travel along the hyperlanes shown on the map, so controlling routes and chokepoints is key. The objective is simple: to become the **last empire controlling the galaxy**. Victory is awarded when one empire controls every system; AI empires can win too.
 
+### Controls
+
+| Action | Control |
+| --- | --- |
+| Select one of your systems | Left mouse button |
+| Send a fleet to a system | Right mouse button |
+| Pan the view | Drag with middle mouse button / Arrow keys |
+| Toggle a gathering point | Click planet with middle mouse button |
+| Zoom in / out | Mouse wheel |
+| Send X ships from the selected planet | 1–9 |
+| Send Y% of the fleet | F1–F10 |
+| Toggle nuclear targeting | `N` |
+| Pause or resume the simulation | `Space` |
+| Increase simulation speed | `+` or `=` |
+| Decrease simulation speed | `-` |
+| Toggle fullscreen | `F` |
+| Exit fullscreen (or quit the game) | `Esc` |
+| Start a new game | `R` |
+
 ### Fleet orders
 
 1. **Select a system:** Left-click one of your systems.
 2. **Choose a destination:** Right-click another system to send a fleet.
 3. **Choose the force:** Use the number keys to send a small fixed number of ships, or the function keys to send a percentage of the available fleet.
 4. **Plan around the map:** Fleets can only travel along connected hyperlanes.
+
+### Capital and command ship
+
+Every empire is led by a single command ship. There is no separate capital building: the capital is simply wherever the command ship is docked, and it travels with the ship while the ship is in transit.
+
+Press `L` to select or deselect your command ship. While it is selected, right-click another friendly system connected by hyperlanes to relocate it. The command ship cannot capture systems, and it never draws ships out of your garrisons.
+
+Relocating is not free of risk. While in transit the command ship can be caught in the crossfire of any hostile system or fleet whose guns reach it—and since gun range grows with the size of a garrison, the biggest fleets threaten the widest stretch of space. It repairs itself slowly while docked, but it can be destroyed in three ways:
+
+- Incidental fire while travelling between systems.
+- A nuclear strike, if it lies within the blast radius.
+- The capture of its current system by an enemy fleet.
+
+Losing a command ship is a serious blow. All new orders are blocked for 180 simulation seconds—no fleet launches, no nuclear strikes, no gathering-point changes—while a successor takes command and establishes a new capital. 
+
+If you lose your command ship, the consequences are permanent. When the disruption ends, the succession completes: your former empire passes to AI control and the game continues without you. You can watch it fight on, but you can no longer issue orders—and if that empire goes on to conquer the galaxy, the game records it as a defeat. You died, and your empire won without you.
+
+AI empires face the same risk, and their command ships are handled by the same director: an AI capital quietly relocates toward safer systems whenever it is threatened or when a better-defended world lies further behind the lines. Hunting down an enemy capital therefore takes patience, and enemy capitals are not marked on the map.
 
 #### Gathering points
 
@@ -103,26 +140,6 @@ Empires grow restless after heavy casualties or nuclear strikes. When citizen ha
 - Revolt: Multiple systems in a sector rise together, forming a new independent rebellion
 
 Maintain morale by capturing new territory or reduce casualties. Neglect invites revolt.
-
-### Controls
-
-| Action | Control |
-| --- | --- |
-| Select one of your systems | Left mouse button |
-| Send a fleet to a system | Right mouse button |
-| Pan the view | Drag with middle mouse button |
-| Toggle a gathering point | Click planet with middle mouse button |
-| Zoom in / out | Mouse wheel |
-| Pan the view | Arrow keys |
-| Send X ships from the selected planet | 1–9 |
-| Send Y% of the fleet | F1–F10 |
-| Toggle nuclear targeting | `N` |
-| Pause or resume the simulation | `Space` |
-| Increase simulation speed | `+` or `=` |
-| Decrease simulation speed | `-` |
-| Toggle fullscreen | `F` |
-| Exit fullscreen (or quit the game) | `Esc` |
-| Start a new game | `R` |
 
 ## Future Work
 
