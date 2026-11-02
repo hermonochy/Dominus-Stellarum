@@ -450,11 +450,8 @@ class Galaxy:
         num_empires = min(len(self.empires), config.EMPIRE_COUNT)
 
         arm_systems: list[list[StarSystem]] = [[] for _ in range(num_arms)]
-        core_systems: list[StarSystem] = []
         for system, arm_idx in zip(self.systems, self.system_arms):
-            if arm_idx is None:
-                core_systems.append(system)
-            else:
+            if arm_idx is not None:
                 arm_systems[arm_idx].append(system)
 
         chosen: list[int] = []
@@ -475,6 +472,7 @@ class Galaxy:
 
         empire_id = 0
 
+        # First empires go on the tips of the arms
         for arm_idx in range(num_arms):
             if empire_id >= num_empires:
                 break
@@ -494,13 +492,31 @@ class Galaxy:
                 place(best[1], empire_id)
                 empire_id += 1
 
-        pool = list(core_systems)
+        # Remaining empires go in the core/arm-beginnings region, spread apart
+        pool = [
+            system for system in self.systems
+            if system.id not in chosen
+            and system.pos.distance_to(center) <= config.EMPIRE_CORE_PLACEMENT_RADIUS
+        ]
+
+        spacing = config.EMPIRE_CORE_MIN_SPACING
         while empire_id < num_empires and pool:
-            best = max(pool, key=min_dist_to_placed)
+            eligible = [
+                system for system in pool
+                if min_dist_to_placed(system) >= spacing
+            ]
+            if not eligible:
+                if spacing <= 20.0:
+                    eligible = pool
+                else:
+                    spacing = max(20.0, spacing * 0.7)
+                    continue
+            best = max(eligible, key=min_dist_to_placed)
             pool.remove(best)
             place(best, empire_id)
             empire_id += 1
 
+        # Final fallback: place anywhere if empires remain
         while empire_id < num_empires:
             candidates = [s for s in self.systems if s.id not in chosen]
             if not candidates:
