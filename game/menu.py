@@ -1,6 +1,7 @@
 import pygame
 
 from . import config
+from .galaxy_generation import GALAXY_DIRECTORY
 
 class _RangeSetting:
     def __init__(self, label: str, attr: str, minimum, maximum, step, fmt="{:g}"):
@@ -19,6 +20,39 @@ class _RangeSetting:
         value = value + direction * self.step
         value = max(self.minimum, min(self.maximum, value))
         setattr(config, self.attr, value)
+
+class _GalaxySetting:
+    label = "Galaxy map"
+
+    def __init__(self):
+        self.index = 0
+        self.paths = []
+        self.refresh()
+
+    def refresh(self) -> None:
+        previous = self.path
+        self.paths = sorted(GALAXY_DIRECTORY.glob("*.galaxy"), key=lambda path: path.name.lower())
+        self.index = self.paths.index(previous) + 1 if previous in self.paths else 0
+
+    @property
+    def path(self):
+        if self.index == 0 or self.index - 1 >= len(self.paths):
+            return None
+        return self.paths[self.index - 1]
+
+    def display(self) -> str:
+        self.refresh_if_changed()
+        return "Random galaxy" if self.path is None else self.path.stem[:22]
+
+    def refresh_if_changed(self) -> None:
+        paths = sorted(GALAXY_DIRECTORY.glob("*.galaxy"), key=lambda path: path.name.lower())
+        if paths != self.paths:
+            self.refresh()
+
+    def adjust(self, direction: int) -> None:
+        self.refresh_if_changed()
+        self.index = (self.index + direction) % (len(self.paths) + 1)
+
 
 class _DifficultySetting:
     label = "AI difficulty"
@@ -113,7 +147,9 @@ HELP_CONTENT = [
 
 class MainMenu:
     def __init__(self):
+        self.galaxy_setting = _GalaxySetting()
         self.settings = [
+            self.galaxy_setting,
             _RangeSetting("Star systems", "STAR_COUNT", 100, 1000, 50),
             _RangeSetting("Empires", "EMPIRE_COUNT", 2, 10, 1),
             _RangeSetting("Starting ships", "STARTING_SHIPS", 10, 200, 5),
@@ -123,6 +159,7 @@ class MainMenu:
         ]
         self.selected = 0
         self.start_requested = False
+        self.error_message = ""
         self.page = "main"
         self.scroll = 0
         self._start_rect = None
@@ -130,8 +167,15 @@ class MainMenu:
         self._back_rect = None
         self._arrow_rects = []
 
+    @property
+    def galaxy_file(self):
+        self.galaxy_setting.refresh_if_changed()
+        return self.galaxy_setting.path
+
     def reset(self) -> None:
         self.start_requested = False
+        self.error_message = ""
+        self.galaxy_setting.refresh_if_changed()
         self.page = "main"
         self.scroll = 0
 
@@ -204,8 +248,8 @@ class MainMenu:
         sh = screen.get_height()
         band_width = min(640, sw - 80)
         left = sw // 2 - band_width // 2
-        top = int(sh * 0.34)
-        row_height = 52
+        top = int(sh * 0.275)
+        row_height = 48
         return [
             pygame.Rect(left, top + i * row_height, band_width, row_height)
             for i in range(len(self.settings))
@@ -267,7 +311,7 @@ class MainMenu:
                 self._arrow_rects.append((hit_rect, index, direction))
 
         self._start_rect = pygame.Rect(0, 0, 280, 54)
-        self._start_rect.center = (sw // 2, int(sh * 0.80))
+        self._start_rect.center = (sw // 2, int(sh * 0.78))
         start_hovered = self._start_rect.collidepoint(mouse)
         pygame.draw.rect(
             screen,
@@ -286,7 +330,7 @@ class MainMenu:
         screen.blit(start_surface, start_surface.get_rect(center=self._start_rect.center))
 
         self._controls_rect = pygame.Rect(0, 0, 280, 46)
-        self._controls_rect.center = (sw // 2, int(sh * 0.895))
+        self._controls_rect.center = (sw // 2, int(sh * 0.875))
         controls_hovered = self._controls_rect.collidepoint(mouse)
         pygame.draw.rect(
             screen,
@@ -303,6 +347,13 @@ class MainMenu:
         )
         controls_surface = label_font.render("CONTROLS & HELP", True, config.TEXT)
         screen.blit(controls_surface, controls_surface.get_rect(center=self._controls_rect.center))
+
+        if self.error_message:
+            error = small_font.render(self.error_message[:100], True, (240, 115, 115))
+            screen.blit(error, error.get_rect(center=(sw // 2, int(sh * 0.955))))
+        elif self.galaxy_file is not None:
+            note = small_font.render("Saved maps use their own stars; empire count is selected above", True, config.MUTED_TEXT)
+            screen.blit(note, note.get_rect(center=(sw // 2, int(sh * 0.955))))
 
         hints = "Up/Down: choose   Left/Right: adjust   Enter: start   ESC: quit"
         hint_surface = small_font.render(hints, True, config.MUTED_TEXT)

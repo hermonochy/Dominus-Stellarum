@@ -141,6 +141,43 @@ Empires grow restless after heavy casualties or nuclear strikes. When citizen ha
 
 Maintain morale by capturing new territory or reduce casualties. Neglect invites revolt.
 
+### Galaxy Editor
+
+Dominus Stellarum includes a standalone galaxy editor for creating and modifying custom galaxies. This will eventually be used to create a custom galaxy for the storyline.
+
+#### Running the Editor
+
+From the project's root directory, run:
+
+```bash
+python editor.py
+```
+
+#### Using the Editor
+
+The editor allows you to:
+
+- **Create systems:** Place, move, and delete star systems.
+- **Edit systems:** Assign custom names and production values. Unspecified values use defaults.
+- **Create hyperlanes:** Connect systems with hyperlanes. Hyperlanes cannot cross or overlap.
+- **Set empire starting positions:** Assign a starting system to any predefined empire. Empires without assigned starts receive automatically generated starting positions.
+- **Generate random galaxies:** Click **GENERATE RANDOM GALAXY**, enter the number of spiral arms and star systems, and generate a galaxy using the same generator as the main game.
+- **Save and load galaxies:** Save your creations as human-readable `.galaxy` files and reopen them for further editing.
+
+When the hyperlane tool is selected, hyperlanes become thicker and brighter for easier editing.
+
+Use the mouse wheel to zoom and middle-click drag to pan around the galaxy.
+
+#### Playing Custom Galaxies
+
+1. Create or load a galaxy in the editor.
+2. Save it.
+3. Launch the game using `python main.py`.
+4. Select your saved galaxy from the **Galaxy Map** setting in the main menu.
+5. Choose how many empires will participate and start the game.
+
+Empire starting positions are associated with specific empires, regardless of the number of empires selected for the game.
+
 ## Future Work
 
 - Alliances

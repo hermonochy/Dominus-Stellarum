@@ -10,10 +10,13 @@ from . import config
 from .combat import fire_at_target, gun_range, resolve_fleet_arrival
 from .command import CommandDirector
 from .models import CombatShot, Empire, Explosion, Fleet, StarSystem
+from .galaxy_generation import GalaxyLayout, active_empire_indices, generate_random_galaxy, resolve_empire_starts
 
 class Galaxy:
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: Optional[int] = None, layout: GalaxyLayout | None = None):
         self.rng = random.Random(seed)
+        self.layout = layout
+        self.empire_count = config.EMPIRE_COUNT
         self.systems: list[StarSystem] = []
         self.empires: list[Empire] = []
         self.fleets: list[Fleet] = []
@@ -82,16 +85,55 @@ class Galaxy:
         self.colonization_start.clear()
         self.colonization_delay.clear()
         self.colonization_origin.clear()
-        self._create_systems()
+        layout = self.layout or generate_random_galaxy(star_count=config.STAR_COUNT, arm_count=config.GALAXY_ARM_COUNT, rng=self.rng)
+        self._active_empire_indices = active_empire_indices(self.empire_count, config.PLAYER_EMPIRE_INDEX)
+        layout.validate(playable=True, empire_indices=self._active_empire_indices)
+        self._install_layout(layout)
         self._place_nuclear_depots()
         self._create_empires()
-        self._place_empires()
+        self._assign_starts(layout)
         self.command.initialize()
         self._build_spatial_grid()
         self._prev_owners = {system.id: system.owner_id for system in self.systems}
         for system in self.systems:
             if system.owner_id is not None:
                 self.colonization_origin.setdefault(system.owner_id, set()).add(system.id)
+
+    def _install_layout(self, layout: GalaxyLayout) -> None:
+        ordered = sorted(layout.systems, key=lambda item: item.id)
+        index = {spec.id: number for number, spec in enumerate(ordered)}
+        names = layout.resolved_names()
+        self.systems = [
+            StarSystem(
+                id=index[spec.id],
+                name=names[spec.id],
+                pos=pygame.Vector2(spec.x, spec.y),
+                production=spec.effective_production,
+                ships=float(self.rng.randint(config.NEUTRAL_SHIPS_MIN, config.NEUTRAL_SHIPS_MAX)),
+            )
+            for spec in ordered
+        ]
+        self.edges = {tuple(sorted((index[a], index[b]))) for a, b in layout.edges}
+        self.neighbors = {system.id: set() for system in self.systems}
+        for a, b in self.edges:
+            self.neighbors[a].add(b)
+            self.neighbors[b].add(a)
+        self._layout_index = index
+
+    def _assign_starts(self, layout: GalaxyLayout) -> None:
+        assigned = resolve_empire_starts(layout, self._active_empire_indices)
+        for empire_id, source_index in enumerate(self._active_empire_indices):
+            system = self.systems[self._layout_index[assigned[source_index]]]
+            system.owner_id = empire_id
+            system.ships = config.STARTING_SHIPS
+            self._claim_depots(system, empire_id)
+
+    def _place_nuclear_depots(self) -> None:
+        depot_count = max(1, int(len(self.systems) * config.NUCLEAR_DEPOT_CHANCE))
+        depot_indices = self.rng.sample(range(len(self.systems)), depot_count)
+        for idx in depot_indices:
+            nukes = self.rng.randint(config.NUCLEAR_DEPOT_MIN, config.NUCLEAR_DEPOT_MAX)
+            self.systems[idx].hidden_nukes = nukes
 
     def update(self, dt: float) -> None:
         self._ship_count_cache = None
@@ -125,279 +167,6 @@ class Galaxy:
         self._update_empire_status()
         self.command.update(dt)
 
-    def _create_systems(self) -> None:
-        center = pygame.Vector2(config.GALAXY_CENTER_X, config.GALAXY_CENTER_Y)
-        num_arms = config.GALAXY_ARM_COUNT
-        target_count = config.STAR_COUNT
-
-        used_names: set[str] = set()
-        positions: list[pygame.Vector2] = []
-        system_data: list[tuple[str, float]] = []
-        arm_tags: list[Optional[int]] = []
-
-        prefixes = ["Al", "An", "Ar", "Aus", "Bel", "Bor", "Ca", "Cal", "Cor", "Cry", "Del", "Dor", "Dra", "Er", "Ere", "Fal", "Fer", "Gal", "Gar", "Hal", "Hel", "Hor", "Io", "Ir", "Jan", "Kel", "Kor", "Lan", "Lor", "Lu", "Mar", "Mor", "Nab", "Nor", "Ny", "Ob", "Or", "Pal", "Pra", "Qua", "Ral", "Ren", "Rho", "Sol", "Tal", "Tar", "Tha", "Tor", "Ur", "Val", "Vel", "Vor", "Wex", "Xan", "Yar", "Zen", "Zeph"]
-        suffixes = ["a", "ac", "ae", "al", "an", "ar", "ath", "ea", "ek", "en", "er", "era", "es", "ia", "ion", "ir", "is", "ix", "o", "on", "or", "os", "ox", "um", "ur", "us", "yn", "yr", "zar"]
-        modifiers = ["", " Prime", " Minor", " Secundus", " Tertius", " II", " III", " IV", " IX"]
-
-        cell_size = config.MIN_STAR_DISTANCE
-        spawn_grid: dict[tuple[int, int], list[pygame.Vector2]] = {}
-
-        def record_position(pos: pygame.Vector2) -> None:
-            key = (int(pos.x // cell_size), int(pos.y // cell_size))
-            bucket = spawn_grid.get(key)
-            if bucket is None:
-                spawn_grid[key] = [pos]
-            else:
-                bucket.append(pos)
-
-        def too_close(pos: pygame.Vector2, min_dist: float) -> bool:
-            col = int(pos.x // cell_size)
-            row = int(pos.y // cell_size)
-            for dc in (-1, 0, 1):
-                for dr in (-1, 0, 1):
-                    for other in spawn_grid.get((col + dc, row + dr), ()):
-                        if pos.distance_to(other) < min_dist:
-                            return True
-            return False
-
-        def make_name() -> str:
-            base_capacity = len(prefixes) * len(suffixes)
-            for _ in range(base_capacity):
-                name = self.rng.choice(prefixes) + self.rng.choice(suffixes)
-                if name not in used_names:
-                    used_names.add(name)
-                    return name
-            for _ in range(base_capacity * len(modifiers) * 2):
-                name = self.rng.choice(prefixes) + self.rng.choice(suffixes) + self.rng.choice(modifiers[1:])
-                if name not in used_names:
-                    used_names.add(name)
-                    return name
-            name = f"Sys{len(used_names)}"
-            used_names.add(name)
-            return name
-
-        def add_star(pos: pygame.Vector2, production: float, arm_idx: Optional[int]) -> None:
-            positions.append(pos)
-            system_data.append((make_name(), production))
-            arm_tags.append(arm_idx)
-            record_position(pos)
-
-        def arm_spawn(base_angle: float) -> tuple[pygame.Vector2, float]:
-            arm_start_radius = config.GALAXY_CORE_RADIUS + 25.0
-            t = self.rng.random()
-            r = arm_start_radius * (config.ARM_MAX_RADIUS / arm_start_radius) ** t
-            theta = (
-                base_angle
-                + t * math.pi * config.GALAXY_ARM_PITCH
-                + self.rng.gauss(0.0, config.GALAXY_ARM_WIND * 0.35)
-            )
-            r += self.rng.gauss(0.0, config.MIN_STAR_DISTANCE * 0.25)
-            r = max(config.GALAXY_CORE_RADIUS + 10.0, r)
-            pos = center + pygame.Vector2(math.cos(theta) * r, math.sin(theta) * r)
-            production_multiplier = 1.0 - (r / config.ARM_MAX_RADIUS) * 0.35
-            production = self.rng.uniform(
-                config.PRODUCTION_MIN * production_multiplier,
-                config.PRODUCTION_MAX * production_multiplier,
-            )
-            return pos, production
-
-        def branch_spawn() -> tuple[pygame.Vector2, float, int]:
-            parent_index = self.rng.randrange(core_star_end, len(positions))
-            parent_rel = positions[parent_index] - center
-            parent_theta = math.atan2(parent_rel.y, parent_rel.x)
-            branch_angle = parent_theta + self.rng.choice([-1, 1]) * self.rng.uniform(0.5, 1.0)
-            branch_radius = parent_rel.length() + self.rng.uniform(35, 55)
-            pos = center + pygame.Vector2(
-                math.cos(branch_angle) * branch_radius,
-                math.sin(branch_angle) * branch_radius,
-            )
-            production = self.rng.uniform(config.PRODUCTION_MIN, config.PRODUCTION_MAX)
-            arm_idx = arm_tags[parent_index]
-            return pos, production, arm_idx if arm_idx is not None else 0
-
-        core_target = max(2, int(target_count * config.GALAXY_CORE_RATIO))
-        attempts = core_target * 40
-        while len(positions) < core_target and attempts > 0:
-            attempts -= 1
-            r = config.GALAXY_CORE_RADIUS * math.sqrt(self.rng.random())
-            theta = self.rng.random() * math.tau
-            pos = center + pygame.Vector2(math.cos(theta) * r, math.sin(theta) * r)
-            if too_close(pos, config.MIN_STAR_DISTANCE * 0.55):
-                continue
-            production = self.rng.uniform(config.PRODUCTION_MIN * 1.1, config.PRODUCTION_MAX * 1.1)
-            add_star(pos, production, None)
-
-        core_star_end = len(positions)
-
-        base_angles = [
-            (math.tau / num_arms) * arm_idx + self.rng.uniform(-0.1, 0.1)
-            for arm_idx in range(num_arms)
-        ]
-
-        arm_budget = max(0, target_count - len(positions))
-        base_quota = arm_budget // num_arms
-        remainder = arm_budget - base_quota * num_arms
-
-        for arm_idx in range(num_arms):
-            quota = base_quota + (1 if arm_idx < remainder else 0)
-            attempts = quota * 5 + 50
-            while quota > 0 and attempts > 0:
-                attempts -= 1
-                pos, production = arm_spawn(base_angles[arm_idx])
-                if too_close(pos, config.MIN_STAR_DISTANCE * 0.75):
-                    continue
-                add_star(pos, production, arm_idx)
-                quota -= 1
-
-        deficit = target_count - len(positions)
-        attempts = deficit * 30
-        relax = 0.75
-        miss_streak = 0
-
-        while len(positions) < target_count and attempts > 0:
-            attempts -= 1
-            if (
-                len(positions) > core_star_end
-                and self.rng.random() < config.GALAXY_BRANCH_RATIO
-            ):
-                pos, production, spawn_arm_idx = branch_spawn()
-            else:
-                spawn_arm_idx = self.rng.randrange(num_arms)
-                pos, production = arm_spawn(base_angles[spawn_arm_idx])
-
-            if too_close(pos, config.MIN_STAR_DISTANCE * relax):
-                miss_streak += 1
-                if miss_streak % 200 == 0:
-                    relax = max(0.15, relax - 0.05)
-                continue
-
-            miss_streak = 0
-            add_star(pos, production, spawn_arm_idx)
-
-        self.system_arms = arm_tags
-        for i, (pos, (name, prod)) in enumerate(zip(positions, system_data)):
-            ships = float(self.rng.randint(config.NEUTRAL_SHIPS_MIN, config.NEUTRAL_SHIPS_MAX))
-            self.systems.append(StarSystem(id=i, name=name, pos=pos, production=prod, ships=ships))
-            self.neighbors[i] = set()
-
-        self._build_lanes(positions)
-
-    def _place_nuclear_depots(self) -> None:
-        depot_count = max(1, int(len(self.systems) * config.NUCLEAR_DEPOT_CHANCE))
-        depot_indices = self.rng.sample(range(len(self.systems)), depot_count)
-        for idx in depot_indices:
-            nukes = self.rng.randint(config.NUCLEAR_DEPOT_MIN, config.NUCLEAR_DEPOT_MAX)
-            self.systems[idx].hidden_nukes = nukes
-
-    def _build_lanes(self, positions: list[pygame.Vector2]) -> None:
-        n = len(positions)
-        parent = list(range(n))
-
-        def find(x: int) -> int:
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        def union(a: int, b: int) -> bool:
-            ra, rb = find(a), find(b)
-            if ra == rb:
-                return False
-            parent[ra] = rb
-            return True
-
-        def crosses_existing(a: int, b: int) -> bool:
-            pa, pb = positions[a], positions[b]
-            for e1, e2 in self.edges:
-                if a in (e1, e2) or b in (e1, e2):
-                    continue
-                if self._segments_intersect(pa, pb, positions[e1], positions[e2]):
-                    return True
-            return False
-
-        def add_lane(a: int, b: int) -> bool:
-            if union(a, b):
-                lane = (min(a, b), max(a, b))
-                self.edges.add(lane)
-                self.neighbors[a].add(b)
-                self.neighbors[b].add(a)
-                return True
-            return False
-
-        candidates: list[tuple[float, int, int]] = []
-        for i in range(n):
-            for j in range(i + 1, n):
-                distance = positions[i].distance_to(positions[j])
-                if config.EDGE_MIN_LENGTH <= distance <= config.EDGE_MAX_LENGTH:
-                    candidates.append((distance, i, j))
-        candidates.sort()
-
-        for distance, i, j in candidates:
-            if find(i) == find(j):
-                continue
-            if crosses_existing(i, j):
-                continue
-            add_lane(i, j)
-
-        bridges = 0
-        while bridges < n:
-            groups: dict[int, list[int]] = {}
-            for i in range(n):
-                groups.setdefault(find(i), []).append(i)
-            if len(groups) <= 1:
-                break
-            roots = list(groups)
-            bridge_candidates: list[tuple[float, int, int]] = []
-            for a_idx in range(len(roots)):
-                for b_idx in range(a_idx + 1, len(roots)):
-                    for a in groups[roots[a_idx]]:
-                        for b in groups[roots[b_idx]]:
-                            distance = positions[a].distance_to(positions[b])
-                            if distance <= config.LANE_BRIDGE_MAX:
-                                bridge_candidates.append((distance, a, b))
-            if not bridge_candidates:
-                best = None
-                for a_idx in range(len(roots)):
-                    for b_idx in range(a_idx + 1, len(roots)):
-                        for a in groups[roots[a_idx]]:
-                            for b in groups[roots[b_idx]]:
-                                distance = positions[a].distance_to(positions[b])
-                                if best is None or distance < best[0]:
-                                    best = (distance, a, b)
-                if best is None:
-                    break
-                distance, a, b = best
-                add_lane(a, b)
-                bridges += 1
-                continue
-            bridge_candidates.sort()
-            added = False
-            for distance, a, b in bridge_candidates:
-                if find(a) == find(b):
-                    continue
-                if crosses_existing(a, b):
-                    continue
-                add_lane(a, b)
-                added = True
-                bridges += 1
-                break
-            if not added:
-                distance, a, b = bridge_candidates[0]
-                if add_lane(a, b):
-                    bridges += 1
-                else:
-                    break
-
-    @staticmethod
-    def _segments_intersect(first: pygame.Vector2, second: pygame.Vector2, third: pygame.Vector2, fourth: pygame.Vector2) -> bool:
-        def orientation(a: pygame.Vector2, b: pygame.Vector2, c: pygame.Vector2) -> float:
-            return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
-        first_orientation = orientation(first, second, third)
-        second_orientation = orientation(first, second, fourth)
-        third_orientation = orientation(third, fourth, first)
-        fourth_orientation = orientation(third, fourth, second)
-        return first_orientation * second_orientation < 0 and third_orientation * fourth_orientation < 0
-
     @staticmethod
     def _unpack_empire(entry: list) -> tuple[str, tuple[int, int, int], int, float]:
         missiles = entry[2] if len(entry) > 2 else config.NUCLEAR_MISSILES_PER_EMPIRE
@@ -405,26 +174,22 @@ class Galaxy:
         return entry[0], entry[1], missiles, float(happiness)
 
     def _create_empires(self) -> None:
-        chosen = config.PLAYER_EMPIRE_INDEX % len(config.EMPIRES)
-        player_slot = min(chosen, config.EMPIRE_COUNT - 1)
-        for empire_id in range(config.EMPIRE_COUNT):
-            if empire_id == player_slot:
-                name, color, missiles, happiness = self._unpack_empire(config.EMPIRES[chosen])
-            else:
-                name, color, missiles, happiness = self._unpack_empire(config.EMPIRES[empire_id])
+        player_index = config.PLAYER_EMPIRE_INDEX % len(config.EMPIRES)
+        for empire_id, source_index in enumerate(self._active_empire_indices):
+            name, color, missiles, happiness = self._unpack_empire(config.EMPIRES[source_index])
             self.empires.append(
                 Empire(
                     id=empire_id,
                     name=name,
                     color=color,
-                    is_player=(empire_id == player_slot),
+                    is_player=(source_index == player_index),
                     missiles_remaining=missiles,
                     happiness=happiness,
                     unrest_tolerance=self._unrest_tolerance(happiness),
                 )
             )
         self.next_empire_id = len(self.empires)
-        config.PLAYER_ID = player_slot
+        config.PLAYER_ID = self._active_empire_indices.index(player_index)
 
     @staticmethod
     def _unrest_tolerance(starting_happiness: float) -> float:
@@ -432,98 +197,6 @@ class Galaxy:
             config.UNREST_TOLERANCE_FLOOR,
             starting_happiness / config.DEFAULT_HAPPINESS,
         )
-
-    def _spiral_deviation(self, system: StarSystem, arm_idx: int, center: pygame.Vector2) -> tuple[float, float]:
-        rel = system.pos - center
-        radius = max(rel.length(), config.GALAXY_CORE_RADIUS + 21.0)
-        arm_start_radius = config.GALAXY_CORE_RADIUS + 20.0
-        log_span = math.log(config.ARM_MAX_RADIUS / arm_start_radius)
-        t = min(1.0, max(0.0, math.log(radius / arm_start_radius) / log_span))
-        ideal_angle = (math.tau / config.GALAXY_ARM_COUNT) * arm_idx + t * math.pi * config.GALAXY_ARM_PITCH
-        actual_angle = math.atan2(rel.y, rel.x)
-        delta = (actual_angle - ideal_angle + math.pi) % math.tau - math.pi
-        return abs(delta), radius
-
-    def _place_empires(self) -> None:
-        center = pygame.Vector2(config.GALAXY_CENTER_X, config.GALAXY_CENTER_Y)
-        num_arms = config.GALAXY_ARM_COUNT
-        num_empires = min(len(self.empires), config.EMPIRE_COUNT)
-
-        arm_systems: list[list[StarSystem]] = [[] for _ in range(num_arms)]
-        for system, arm_idx in zip(self.systems, self.system_arms):
-            if arm_idx is not None:
-                arm_systems[arm_idx].append(system)
-
-        chosen: list[int] = []
-
-        def place(system: StarSystem, empire_id: int) -> None:
-            system.owner_id = empire_id
-            system.ships = config.STARTING_SHIPS
-            self._claim_depots(system, empire_id)
-            chosen.append(system.id)
-
-        def min_dist_to_placed(system: StarSystem) -> float:
-            if not chosen:
-                return math.inf
-            return min(
-                system.pos.distance_to(self.systems[cid].pos)
-                for cid in chosen
-            )
-
-        empire_id = 0
-
-        # First empires go on the tips of the arms
-        for arm_idx in range(num_arms):
-            if empire_id >= num_empires:
-                break
-            candidates = [
-                s for s in arm_systems[arm_idx]
-                if s.pos.distance_to(center) > config.GALAXY_CORE_RADIUS
-            ]
-            if not candidates:
-                continue
-            best: tuple[tuple[int, float, float], StarSystem] | None = None
-            for system in candidates:
-                deviation, radius = self._spiral_deviation(system, arm_idx, center)
-                key = (1 if deviation > 0.5 else 0, -radius, deviation)
-                if best is None or key < best[0]:
-                    best = (key, system)
-            if best is not None:
-                place(best[1], empire_id)
-                empire_id += 1
-
-        # Remaining empires go in the core/arm-beginnings region, spread apart
-        pool = [
-            system for system in self.systems
-            if system.id not in chosen
-            and system.pos.distance_to(center) <= config.EMPIRE_CORE_PLACEMENT_RADIUS
-        ]
-
-        spacing = config.EMPIRE_CORE_MIN_SPACING
-        while empire_id < num_empires and pool:
-            eligible = [
-                system for system in pool
-                if min_dist_to_placed(system) >= spacing
-            ]
-            if not eligible:
-                if spacing <= 20.0:
-                    eligible = pool
-                else:
-                    spacing = max(20.0, spacing * 0.7)
-                    continue
-            best = max(eligible, key=min_dist_to_placed)
-            pool.remove(best)
-            place(best, empire_id)
-            empire_id += 1
-
-        # Final fallback: place anywhere if empires remain
-        while empire_id < num_empires:
-            candidates = [s for s in self.systems if s.id not in chosen]
-            if not candidates:
-                break
-            best = max(candidates, key=min_dist_to_placed)
-            place(best, empire_id)
-            empire_id += 1
 
     def _claim_depots(self, system: StarSystem, empire_id: int) -> None:
         if system.hidden_nukes > 0:

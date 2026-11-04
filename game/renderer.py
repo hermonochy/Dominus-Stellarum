@@ -274,7 +274,7 @@ class Renderer:
         offset_y = camera['offset_y']
         sw = self.screen.get_width()
         sh = self.screen.get_height()
-        line_width = int(max(2, 3 if selected is not None else 2) * zoom)
+        line_width = max(1, int((4 if selected is not None else 3) * zoom))
 
         for first_id, second_id in galaxy.edges:
             first = galaxy.systems[first_id]

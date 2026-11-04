@@ -331,7 +331,7 @@ DIFFICULTY_PRESETS = {
 DEFAULT_DIFFICULTY_INDEX = 1
 
 EMPIRES = [
-    # [name, colour, inital_nuke_count, initial_happiness]
+
     ["Terran Empire", (70, 170, 255), 0, 70],
     ["Crimson Dominion", (240, 80, 80), 0, 35],
     ["Emerald Empire", (90, 215, 125), 0, 85],
