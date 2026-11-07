@@ -4,6 +4,7 @@ from . import config
 from . import ui
 from .ai import AIController
 from .galaxy import Galaxy
+from .galaxy_generation import active_empire_indices, load_galaxy
 from .menu import MainMenu
 from .player import PlayerController
 from .renderer import Renderer
@@ -31,6 +32,7 @@ class GameApp:
         self.menu = MainMenu()
         self.in_menu = True
         self.galaxy = None
+        self.active_layout = None
         self.player = None
         self.ai = None
 
@@ -68,7 +70,7 @@ class GameApp:
 
     def run(self):
         while self.running:
-            dt = self.clock.tick(config.FPS) / 1000.0
+            dt = self.clock.tick(config.FPS) / 500.0
             dt = min(dt, 0.1)
 
             if self.in_menu:
@@ -122,7 +124,17 @@ class GameApp:
         pygame.display.flip()
 
     def _start_game(self):
-        self._new_game()
+        try:
+            layout = load_galaxy(self.menu.galaxy_file) if self.menu.galaxy_file is not None else None
+            if layout is not None:
+                layout.validate(playable=True, empire_indices=active_empire_indices(config.EMPIRE_COUNT, config.PLAYER_EMPIRE_INDEX))
+            galaxy = Galaxy(layout=layout)
+        except (OSError, ValueError) as exc:
+            self.menu.start_requested = False
+            self.menu.error_message = str(exc)
+            return
+        self.active_layout = layout
+        self._new_game(galaxy)
         self.menu.reset()
         self.in_menu = False
 
@@ -288,7 +300,7 @@ class GameApp:
         if key == pygame.K_RIGHT:
             self.camera['offset_x'] -= 50
             return True
-            
+
         if key == pygame.K_l:
             self.player.toggle_command_mode()
             return True
@@ -296,6 +308,14 @@ class GameApp:
         if key == pygame.K_n:
             if not self.galaxy.autopilot:
                 self.player.toggle_nuke_mode()
+            return True
+
+        if key == pygame.K_LEFTBRACKET:
+            self.player.adjust_escorts(-config.ESCORT_RECRUIT_STEP)
+            return True
+
+        if key == pygame.K_RIGHTBRACKET:
+            self.player.adjust_escorts(config.ESCORT_RECRUIT_STEP)
             return True
 
         if self.galaxy.autopilot:
@@ -342,9 +362,9 @@ class GameApp:
     def _decrease_speed(self):
         self.speed_index = max(0, self.speed_index - 1)
 
-    def _new_game(self):
+    def _new_game(self, galaxy=None):
         self.renderer.popup.close()
-        self.galaxy = Galaxy()
+        self.galaxy = galaxy if galaxy is not None else Galaxy(layout=self.active_layout)
         if self.player is None:
             self.player = PlayerController(self.galaxy)
         else:

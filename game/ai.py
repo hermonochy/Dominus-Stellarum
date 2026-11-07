@@ -65,15 +65,43 @@ class AIController:
                 continue
             self._think_for_empire(empire.id)
 
-    def _nuclear_target_score(self, system: StarSystem) -> float:
-        inbound = sum(
-            fleet.ships
-            for fleet in self.galaxy.fleets
-            if not fleet.is_missile
-            and fleet.target_id == system.id
-            and fleet.owner_id == system.owner_id
-        )
-        return system.ships + inbound + (system.production * config.NUCLEAR_PRODUCTION_TARGET_WEIGHT)
+    def _rank_nuclear_targets(self, targets: list[StarSystem]) -> list[StarSystem]:
+        radius = config.NUCLEAR_EFFECT_RADIUS
+        fleet_grid = self.galaxy._build_fleet_grid()
+
+        def score(system: StarSystem) -> float:
+            area_garrison = sum(
+                other.ships
+                for other in self.galaxy._nearby_systems(system.pos, radius)
+                if other.owner_id == system.owner_id
+            )
+            area_fleets = sum(
+                fleet.ships
+                for fleet in self.galaxy._nearby_fleets(system.pos, radius, fleet_grid)
+                if not fleet.is_missile and fleet.owner_id == system.owner_id
+            )
+            inbound = sum(
+                fleet.ships
+                for fleet in self.galaxy.fleets
+                if not fleet.is_missile
+                and fleet.target_id == system.id
+                and fleet.owner_id == system.owner_id
+            )
+            escorts = 0.0
+            capital_id = self.galaxy.command.capital(system.owner_id)
+            if capital_id is not None:
+                capital = self.galaxy.systems[capital_id]
+                if capital.pos.distance_to(system.pos) <= radius:
+                    escorts = self.galaxy.empires[system.owner_id].escorts * config.NUCLEAR_ESCORT_TARGET_WEIGHT
+            return (
+                area_garrison
+                + area_fleets
+                + escorts
+                + inbound
+                + system.production * config.NUCLEAR_PRODUCTION_TARGET_WEIGHT
+            )
+
+        return sorted(targets, key=score, reverse=True)
 
     def _consider_nuclear_launch(self, empire_id: int) -> None:
         empire = self.galaxy.empires[empire_id]
@@ -133,8 +161,7 @@ class AIController:
             if not targets:
                 return
 
-            best = max(targets, key=self._nuclear_target_score)
-            target_system = best
+            target_system = self._rank_nuclear_targets(targets)[0]
 
             origin = min(
                 (system for system in self.galaxy.systems
@@ -194,20 +221,17 @@ class AIController:
         if not targets:
             return
 
-        targets_sorted = sorted(targets, key=self._nuclear_target_score, reverse=True)
+        ranked = self._rank_nuclear_targets(targets)
         num_missiles = empire.missiles_remaining
 
         launched = 0
-        used_targets = set()
+        used_targets: list[StarSystem] = []
 
-        for missile_idx in range(min(num_missiles, len(targets_sorted))):
-            for candidate in targets_sorted:
-                if candidate.id in used_targets:
-                    continue
-                target = candidate
+        for target in ranked:
+            if launched >= num_missiles:
                 break
-            else:
-                break
+            if any(target.pos.distance_to(other.pos) < config.NUCLEAR_EFFECT_RADIUS for other in used_targets):
+                continue
 
             origin = min(
                 (system for system in self.galaxy.systems
@@ -220,12 +244,7 @@ class AIController:
 
             if self.galaxy._launch_nuclear(origin.id, target.id, ignore_cooldown=True):
                 launched += 1
-                used_targets.add(target.id)
-            else:
-                break
-
-            if launched >= num_missiles:
-                break
+                used_targets.append(target)
 
         empire.missiles_remaining = 0
         self.nuclear_lockouts[empire_id] = config.NUCLEAR_LAUNCH_LOCKOUT

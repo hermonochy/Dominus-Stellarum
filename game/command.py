@@ -3,9 +3,8 @@ from collections import deque
 import pygame
 
 from . import config
-from .combat import gun_range
+from .combat import gun_range, escort_range
 from .models import CommandShip
-
 
 class CommandDirector:
     def __init__(self, galaxy):
@@ -147,6 +146,7 @@ class CommandDirector:
         if ship is None:
             return
         empire = self.galaxy.empires[empire_id]
+        empire.escorts = 0.0
         empire.command_lockout = config.COMMAND_DISRUPTION_DURATION
         empire.command_losses += 1
         self.ai_relocation_cooldowns.pop(empire_id, None)
@@ -160,6 +160,32 @@ class CommandDirector:
             if ship.position.distance_to(position) <= radius:
                 self.lose(empire_id, "destroyed by a nuclear strike")
 
+    def _escort_engagement(self, empire, position: pygame.Vector2, dt: float) -> float:
+        escorts = empire.escorts
+        escort_r = escort_range(escorts)
+        incoming = 0.0
+        for system in self.galaxy._nearby_systems(position, config.COMMAND_SHIP_SCAN_RADIUS):
+            if system.owner_id in (None, empire.id) or system.ships <= config.COMBAT_MIN_SHIPS:
+                continue
+            distance = position.distance_to(system.pos)
+            if distance <= gun_range(system):
+                incoming += system.ships * config.COMMAND_SHIP_DAMAGE_PER_SHIP * dt
+                if escorts >= 1.0 and distance <= escort_r:
+                    system.ships = max(0.0, system.ships - escorts * config.ESCORT_DPS_PER_SHIP * dt)
+        for fleet in self.galaxy.fleets:
+            if fleet.owner_id == empire.id or fleet.is_missile or fleet.ships <= config.COMBAT_MIN_SHIPS:
+                continue
+            distance = position.distance_to(fleet.position)
+            if distance <= gun_range(fleet):
+                incoming += fleet.ships * config.COMMAND_SHIP_DAMAGE_PER_SHIP * dt
+                if escorts >= 1.0 and distance <= escort_r:
+                    fleet.ships = max(0.0, fleet.ships - escorts * config.ESCORT_DPS_PER_SHIP * dt)
+        if escorts < 1.0:
+            return incoming
+        hit_chance = config.ESCORT_HIT_BASE / (config.ESCORT_HIT_BASE + escorts)
+        empire.escorts = max(0.0, escorts - incoming * (1.0 - hit_chance) * config.ESCORT_LOSS_FACTOR)
+        return incoming * hit_chance
+
     def _advance(self, ship: CommandShip, dt: float) -> None:
         if ship.system_id is not None:
             system = self.galaxy.systems[ship.system_id]
@@ -168,6 +194,9 @@ class CommandDirector:
                 self.lose(ship.owner_id, "lost when its capital was captured")
                 return
             ship.hull = min(config.COMMAND_SHIP_HULL, ship.hull + config.COMMAND_SHIP_REPAIR_RATE * dt)
+            empire = self.galaxy.empires[ship.owner_id]
+            if empire.escorts >= 1.0:
+                self._escort_engagement(empire, system.pos, dt)
             return
 
         remaining = config.FLEET_SPEED * config.COMMAND_SHIP_SPEED_MULT * dt
@@ -207,18 +236,11 @@ class CommandDirector:
     def _apply_transit_fire(self, ship: CommandShip, dt: float, position: pygame.Vector2) -> None:
         if ship.system_id is not None:
             return
-        total_damage = 0.0
-        for system in self.galaxy._nearby_systems(position, config.COMMAND_SHIP_SCAN_RADIUS):
-            if system.owner_id in (None, ship.owner_id) or system.ships <= config.COMBAT_MIN_SHIPS:
-                continue
-            if position.distance_to(system.pos) <= gun_range(system):
-                total_damage += system.ships * config.COMMAND_SHIP_DAMAGE_PER_SHIP * dt
-        for fleet in self.galaxy.fleets:
-            if fleet.owner_id == ship.owner_id or fleet.is_missile or fleet.ships <= config.COMBAT_MIN_SHIPS:
-                continue
-            if position.distance_to(fleet.position) <= gun_range(fleet):
-                total_damage += fleet.ships * config.COMMAND_SHIP_DAMAGE_PER_SHIP * dt
-        ship.hull -= total_damage
+        empire = self.galaxy.empires[ship.owner_id]
+        damage = self._escort_engagement(empire, position, dt)
+        if damage <= 0.0:
+            return
+        ship.hull -= damage
         if ship.hull <= 0.0:
             self.lose(ship.owner_id, "shot down while in transit")
 

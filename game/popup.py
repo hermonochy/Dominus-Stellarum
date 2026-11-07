@@ -1,6 +1,7 @@
 import pygame
 
 from . import config
+from .combat import escort_range
 
 class EmpirePopup:
     def __init__(self):
@@ -156,16 +157,30 @@ class EmpirePopup:
         )
         cursor_y += int(16 * scale)
 
+        show_escorts = empire.id == config.PLAYER_ID or config.COMMAND_SHOW_ENEMY_CAPITALS
+
         systems = self.galaxy.empire_system_count(empire.id)
         ships = int(self.galaxy.empire_ship_count(empire.id))
         strength = int(self.galaxy.empire_strength(empire.id))
         missiles = empire.missiles_remaining
+        escort_count = int(empire.escorts)
         stats_font = self._get_font(body_size)
-        stats = stats_font.render(
-            f"Systems: {systems}    Ships: {ships}    Strength: {strength:,}    Missiles: {missiles}",
-            True,
-            config.TEXT,
-        )
+
+        stats_segments = [
+            f"Systems: {systems}",
+            f"Ships: {ships}",
+            f"Strength: {strength:,}",
+            f"Missiles: {missiles}",
+        ]
+        if show_escorts:
+            stats_segments.append(f"Escorts: {escort_count}")
+
+        separator = "    "
+        stats_text = separator.join(stats_segments)
+        while stats_font.size(stats_text)[0] > content_width and separator:
+            separator = separator[:-1]
+            stats_text = separator.join(stats_segments)
+        stats = stats_font.render(stats_text, True, config.TEXT)
         screen.blit(stats, (content_left, cursor_y))
         cursor_y += stats.get_height() + int(6 * scale)
 
@@ -205,6 +220,12 @@ class EmpirePopup:
             command_surface = self._get_text(command_label, small_size, command_color)
             screen.blit(command_surface, (content_left, cursor_y))
             cursor_y += command_surface.get_height() + int(8 * scale)
+
+        if show_escorts and empire.escorts >= 1.0:
+            escort_line = f"Escort screen: {escort_count} ships, engagement range {escort_range(empire.escorts):.0f}"
+            escort_surface = self._get_text(escort_line, small_size, config.VALID_TARGET_COLOR)
+            screen.blit(escort_surface, (content_left, cursor_y))
+            cursor_y += escort_surface.get_height() + int(8 * scale)
 
         heading = self._get_text("INTELLIGENCE REPORT", small_size, config.SELECTION_COLOR)
         screen.blit(heading, (content_left, cursor_y))
