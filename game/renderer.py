@@ -9,6 +9,8 @@ from .player import PlayerController
 from .popup import EmpirePopup
 
 class Renderer:
+    RANGE_CULL_MARGIN = 60
+
     def __init__(self, screen, camera):
         self.screen = screen
         self.camera = camera
@@ -30,6 +32,8 @@ class Renderer:
         self._tooltip_label_font = None
         self._empire_row_rects: list[tuple[pygame.Rect, object]] = []
         self._empire_row_hit_width = 540
+        self._reachable_galaxy: Galaxy | None = None
+        self._reachable_counts: dict[int, int] = {}
         self.popup = EmpirePopup()
         self.shake_timer = 0.0
         self.shake_intensity = 0.0
@@ -164,16 +168,16 @@ class Renderer:
         return surface
 
     def _draw_gun_ranges(self, galaxy, camera):
-        if self._range_cache_zoom != camera['zoom']:
-            self._range_cache.clear()
-            self._range_cache_zoom = camera['zoom']
-
         zoom = camera['zoom']
+        if self._range_cache_zoom != zoom:
+            self._range_cache.clear()
+            self._range_cache_zoom = zoom
+
         offset_x = camera['offset_x']
         offset_y = camera['offset_y']
         sw = self.screen.get_width()
         sh = self.screen.get_height()
-        margin = 260 * zoom
+        margin = self.RANGE_CULL_MARGIN * zoom
 
         entities = [
             (system.pos, system.owner_id, gun_range(system))
@@ -654,12 +658,22 @@ class Renderer:
             label = self._get_ship_label(font_size, str(int(system.ships)))
             self.screen.blit(label, (sx + dr + 5, sy - 8))
 
+    def _reachable_count(self, galaxy: Galaxy, system_id: int) -> int:
+        if self._reachable_galaxy is not galaxy:
+            self._reachable_galaxy = galaxy
+            self._reachable_counts = {}
+        count = self._reachable_counts.get(system_id)
+        if count is None:
+            count = len(galaxy.reachable_system_ids(system_id))
+            self._reachable_counts[system_id] = count
+        return count
+
     def _tooltip_lines(self, galaxy, system) -> list[str]:
         if system.owner_id is None:
             owner_name = "Unclaimed"
         else:
             owner_name = galaxy.empires[system.owner_id].name
-        reachable = len(galaxy.reachable_system_ids(system.id))
+        reachable = self._reachable_count(galaxy, system.id)
         lines = [
             system.name,
             f"Owner: {owner_name}",
@@ -879,7 +893,7 @@ class Renderer:
             self._draw_end_screen("YOU LOST!", "You died! Your empire conquered the galaxy without you. Press R to try again.")
         elif winner is not None:
             self._draw_end_screen("DEFEAT", f"The {winner.name} rules the galaxy. Press R to try again.")
-            
+
     def _draw_end_screen(self, title, subtitle):
         overlay = pygame.Surface(
             (self.screen.get_width(), self.screen.get_height()),

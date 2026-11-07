@@ -44,6 +44,8 @@ class GalaxyEditor:
         self.dirty = False
         self.buttons: list[tuple[pygame.Rect, str]] = []
         self.fields: dict[str, pygame.Rect] = {}
+        self._preview_cache: tuple[bool, int, dict[int, int]] | None = None
+        self._cached_names: dict[int, str] | None = None
         self.title_font = pygame.font.Font(None, 35)
         self.body_font = pygame.font.Font(None, 25)
         self.small_font = pygame.font.Font(None, 21)
@@ -65,6 +67,11 @@ class GalaxyEditor:
     def _status(self, message: str, error: bool = False) -> None:
         self.message = message
         self.is_error = error
+
+    def _mark_dirty(self) -> None:
+        self.dirty = True
+        self._preview_cache = None
+        self._cached_names = None
 
     def _path(self) -> Path:
         name = Path(self.filename.strip()).name
@@ -116,6 +123,8 @@ class GalaxyEditor:
         self.lane_origin = None
         self.focus = None
         self.dirty = False
+        self._preview_cache = None
+        self._cached_names = None
         self._fit_view()
         self._sync_fields()
         self._status(f"Loaded {source.name}: {len(layout.systems)} systems, {len(layout.edges)} lanes")
@@ -131,7 +140,7 @@ class GalaxyEditor:
         self.selected_id = None
         self.lane_origin = None
         self.generate_dialog = False
-        self.dirty = True
+        self._mark_dirty()
         self._sync_fields()
         self._fit_view()
         self._status(f"Generated {len(self.layout.systems)} systems across {arm_count} arms. You can now edit it.")
@@ -141,20 +150,31 @@ class GalaxyEditor:
         self.selected_id = None
         self.lane_origin = None
         self.active_path = None
-        self.dirty = True
+        self._mark_dirty()
         self._sync_fields()
         self._fit_view()
         self._status("Blank galaxy. Select ADD SYSTEM to place stars.")
 
     def _preview_starts(self) -> dict[int, int]:
+        cached = self._preview_cache
+        if cached is not None and cached[0] == self.dirty and cached[1] == self.empire_index:
+            return cached[2]
         if not self.layout.systems:
-            return {}
-        indices = list(sorted(self.layout.starts))
-        if self.empire_index not in indices:
-            indices.insert(0, self.empire_index)
-        indices.extend(index for index in range(len(config.EMPIRES)) if index not in indices)
-        indices = indices[:len(self.layout.systems)]
-        return resolve_empire_starts(self.layout, indices)
+            result = {}
+        else:
+            indices = list(sorted(self.layout.starts))
+            if self.empire_index not in indices:
+                indices.insert(0, self.empire_index)
+            indices.extend(index for index in range(len(config.EMPIRES)) if index not in indices)
+            indices = indices[:len(self.layout.systems)]
+            result = resolve_empire_starts(self.layout, indices)
+        self._preview_cache = (self.dirty, self.empire_index, result)
+        return result
+
+    def _resolved_names(self) -> dict[int, str]:
+        if self._cached_names is None:
+            self._cached_names = self.layout.resolved_names()
+        return self._cached_names
 
     def _selected(self) -> SystemSpec | None:
         return next((system for system in self.layout.systems if system.id == self.selected_id), None)
@@ -178,7 +198,7 @@ class GalaxyEditor:
             return
         if system.production != value:
             system.production = value
-            self.dirty = True
+            self._mark_dirty()
 
     def _select(self, system_id: int | None) -> None:
         self._commit_production()
@@ -193,7 +213,7 @@ class GalaxyEditor:
         self.selected_id = None
         self.lane_origin = None
         self._sync_fields()
-        self.dirty = True
+        self._mark_dirty()
         self._status("System, connected lanes and assigned empire starts removed.")
 
     def _fit_view(self) -> None:
@@ -239,8 +259,8 @@ class GalaxyEditor:
         if self.mode == "add":
             if hit is None:
                 system = self.layout.add_system(*self._world(pos))
+                self._mark_dirty()
                 self._select(system.id)
-                self.dirty = True
                 self._status(f"Added {self.layout.system_name(system)} (#{system.id}).")
             else:
                 self._select(hit.id)
@@ -262,7 +282,7 @@ class GalaxyEditor:
                 except ValueError as exc:
                     self._status(str(exc), error=True)
                 else:
-                    self.dirty = True
+                    self._mark_dirty()
                     self._status("Hyperlane added." if added else "Hyperlane removed.")
                 self.lane_origin = None
             else:
@@ -271,7 +291,7 @@ class GalaxyEditor:
             self._select(hit.id)
             self.layout.starts = {empire: sid for empire, sid in self.layout.starts.items() if sid != hit.id or empire == self.empire_index}
             self.layout.starts[self.empire_index] = hit.id
-            self.dirty = True
+            self._mark_dirty()
             self._status(f"{config.EMPIRES[self.empire_index][0]} starts at {self.layout.system_name(hit)}.")
         elif self.mode == "delete" and hit is not None:
             self._select(hit.id)
@@ -304,7 +324,7 @@ class GalaxyEditor:
         elif action == "clear_start":
             if self.empire_index in self.layout.starts:
                 del self.layout.starts[self.empire_index]
-                self.dirty = True
+                self._mark_dirty()
                 self._status(f"{config.EMPIRES[self.empire_index][0]} will use an automatic start.")
         elif action == "remove":
             self._delete_selected()
@@ -333,9 +353,9 @@ class GalaxyEditor:
             system = self._selected()
             if system is not None:
                 system.name = text
-                self.dirty = True
+                self._mark_dirty()
         elif self.focus == "production":
-            self.dirty = True
+            self._mark_dirty()
 
     def _handle_generate_dialog(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
@@ -469,7 +489,7 @@ class GalaxyEditor:
                 system = self._selected()
                 if system is not None:
                     if self.layout.move_system(system.id, *self._world(event.pos)):
-                        self.dirty = True
+                        self._mark_dirty()
                     else:
                         self._status("Cannot move system: hyperlanes would overlap.", error=True)
 
@@ -513,7 +533,7 @@ class GalaxyEditor:
                 y = int(origin_y + i * grid_spacing)
                 pygame.draw.line(self.screen, (16, 23, 38), (0, y), (canvas.right, y))
         positions = {system.id: self._screen(system) for system in self.layout.systems}
-        names = self.layout.resolved_names()
+        names = self._resolved_names()
         starts_preview = self._preview_starts()
         lane_mode = self.mode == "lane"
         lane_color = (110, 175, 235) if lane_mode else config.LANE_COLOR
@@ -522,6 +542,7 @@ class GalaxyEditor:
             pygame.draw.line(self.screen, lane_color, positions[a], positions[b], lane_width)
         if self.mode == "lane" and self.lane_origin in positions:
             pygame.draw.line(self.screen, config.SELECTION_COLOR, positions[self.lane_origin], pygame.mouse.get_pos(), 2)
+        show_all_labels = self.zoom > 0.70
         for system in self.layout.systems:
             px, py = positions[system.id]
             if not canvas.inflate(30, 30).collidepoint((px, py)):
@@ -536,7 +557,7 @@ class GalaxyEditor:
             pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (px, py), radius)
             if system.id == self.selected_id:
                 pygame.draw.circle(self.screen, config.SELECTION_COLOR, (px, py), 15, 2)
-            if self.zoom > 0.70 or starts or system.id == self.selected_id:
+            if show_all_labels or starts or system.id == self.selected_id:
                 color = config.SELECTION_COLOR if system.id == self.selected_id else config.MUTED_TEXT
                 self._text(names[system.id], (px + 11, py - 9), color, self.small_font)
         self.screen.set_clip(None)
