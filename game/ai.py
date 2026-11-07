@@ -87,9 +87,16 @@ class AIController:
                 and fleet.target_id == system.id
                 and fleet.owner_id == system.owner_id
             )
+            escorts = 0.0
+            capital_id = self.galaxy.command.capital(system.owner_id)
+            if capital_id is not None:
+                capital = self.galaxy.systems[capital_id]
+                if capital.pos.distance_to(system.pos) <= radius:
+                    escorts = self.galaxy.empires[system.owner_id].escorts * config.NUCLEAR_ESCORT_TARGET_WEIGHT
             return (
                 area_garrison
                 + area_fleets
+                + escorts
                 + inbound
                 + system.production * config.NUCLEAR_PRODUCTION_TARGET_WEIGHT
             )

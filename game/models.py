@@ -17,6 +17,7 @@ class Empire:
     is_rebel: bool = False
     command_lockout: float = 0.0
     command_losses: int = 0
+    escorts: float = 0.0
 
 
 @dataclass

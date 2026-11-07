@@ -70,7 +70,7 @@ class GameApp:
 
     def run(self):
         while self.running:
-            dt = self.clock.tick(config.FPS) / 1000.0
+            dt = self.clock.tick(config.FPS) / 500.0
             dt = min(dt, 0.1)
 
             if self.in_menu:
@@ -300,7 +300,7 @@ class GameApp:
         if key == pygame.K_RIGHT:
             self.camera['offset_x'] -= 50
             return True
-            
+
         if key == pygame.K_l:
             self.player.toggle_command_mode()
             return True
@@ -308,6 +308,14 @@ class GameApp:
         if key == pygame.K_n:
             if not self.galaxy.autopilot:
                 self.player.toggle_nuke_mode()
+            return True
+
+        if key == pygame.K_LEFTBRACKET:
+            self.player.adjust_escorts(-config.ESCORT_RECRUIT_STEP)
+            return True
+
+        if key == pygame.K_RIGHTBRACKET:
+            self.player.adjust_escorts(config.ESCORT_RECRUIT_STEP)
             return True
 
         if self.galaxy.autopilot:

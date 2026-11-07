@@ -98,6 +98,13 @@ HELP_CONTENT = [
     ("text", f"Losing a command ship blocks all new orders for {int(config.COMMAND_DISRUPTION_DURATION)} simulation seconds. An AI successor then takes command and establishes a new capital. Every empire follows the same rule."),
     ("text", "Delegating your empire to the AI gives it control of regular fleets and nuclear orders only. You remain in charge of your own command ship: press L and right-click a friendly world to move it, even while the AI general commands your troops."),
     ("gap", ""),
+
+    ("heading", "ESCORTS"),
+    ("text", "Press ] to transfer 25 ships from your capital's garrison into your escort screen, and [ to release them back. Escorts can only be adjusted while the command ship is docked."),
+    ("text", "Escorts automatically guard the capital when docked and the flagship while travelling, returning fire at any attacker within range. The more escorts you keep, the smaller the chance that enemy fire reaches the flagship itself: a large escort screen makes it nearly untouchable, while a handful of escorts will fall quickly."),
+    ("text", "Escorts are yours alone: the AI can never seize or redirect them. But beware — a huge escort screen concentrates value on one world, making your capital a prime target for enemy nuclear strikes."),
+    ("gap", ""),
+
     ("heading", "FLEET ORDERS"),
     ("text", "Left-click one of your systems to select it; the hyperlanes leading to every reachable system light up."),
     ("text", "Right-click any system to send a fleet there. Sending to your own system reinforces it; sending to a neutral or enemy system attacks it."),
@@ -132,6 +139,8 @@ HELP_CONTENT = [
     ("row", "Select/deselect command ship — L"),
     ("row", "Move command ship — L, then right-click friendly system"),
     ("row", "Move command ship on autopilot — L and right-click"),
+    ("row", "Recruit 25 escorts — ]"),
+    ("row", "Release 25 escorts — ["),
     ("row", "Pan the view — Middle mouse button drag / Arrow keys"),
     ("row", "Toggle a gathering point — Middle mouse button click"),
     ("row", "Zoom in or out — Mouse wheel"),
@@ -175,7 +184,7 @@ class MainMenu:
     def reset(self) -> None:
         self.start_requested = False
         self.error_message = ""
-        self.galaxy_setting.refresh_if_changed()
+        self.galaxy_setting.refresh()
         self.page = "main"
         self.scroll = 0
 

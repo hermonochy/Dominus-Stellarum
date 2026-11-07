@@ -178,6 +178,34 @@ class PlayerController:
         else:
             self._set_message("Fleet control selected.")
 
+    def adjust_escorts(self, amount: int) -> None:
+        if self.galaxy.player_succession_complete:
+            return
+        ship = self.galaxy.command.get(config.PLAYER_ID)
+        if ship is None or ship.system_id is None:
+            self._set_message("Escorts can only be adjusted while the command ship is docked.")
+            return
+        empire = self.galaxy.empires[config.PLAYER_ID]
+        capital = self.galaxy.systems[ship.system_id]
+        if capital.owner_id != config.PLAYER_ID:
+            return
+        if amount > 0:
+            step = min(config.ESCORT_RECRUIT_STEP, int(capital.ships))
+            if step < 1:
+                self._set_message(f"{capital.name} has no spare ships for escorts.")
+                return
+            capital.ships -= step
+            empire.escorts += step
+            self._set_message(f"{empire.escorts:.0f} escorts guarding the command ship (+{step}).")
+        else:
+            step = min(config.ESCORT_RECRUIT_STEP, int(empire.escorts))
+            if step < 1:
+                self._set_message("No escorts to release.")
+                return
+            empire.escorts -= step
+            capital.ships += step
+            self._set_message(f"{empire.escorts:.0f} escorts remaining; {step} returned to {capital.name}.")
+
     def _right_click(
         self,
         position: tuple[int, int],

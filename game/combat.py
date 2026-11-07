@@ -16,6 +16,10 @@ def gun_range(entity) -> float:
         range_value *= config.FLEET_GUN_RANGE_MULT
     return range_value
 
+def escort_range(ships) -> float:
+    range_value = config.GUN_RANGE_BASE * ships ** config.GUN_RANGE_EXPONENT
+    return range_value
+
 def _hit_probability(ship_count: float) -> float:
     if ship_count <= 0:
         return 0.0

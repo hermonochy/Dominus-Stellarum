@@ -3,7 +3,7 @@ import pygame
 
 from . import config
 from . import ui
-from .combat import gun_range
+from .combat import gun_range, escort_range
 from .galaxy import Galaxy
 from .player import PlayerController
 from .popup import EmpirePopup
@@ -22,6 +22,7 @@ class Renderer:
         self._ship_font_cache: dict[int, pygame.font.Font] = {}
         self._ship_label_cache: dict[tuple[int, str], pygame.Surface] = {}
         self._fleet_label_cache: dict[str, pygame.Surface] = {}
+        self._escort_label_cache: dict[str, pygame.Surface] = {}
         self._recache_fonts()
         self._bottom_font_key = None
         self._empire_row_font = None
@@ -57,6 +58,7 @@ class Renderer:
         self._ship_font_cache.clear()
         self._ship_label_cache.clear()
         self._fleet_label_cache.clear()
+        self._escort_label_cache.clear()
         self._tooltip_font_key = None
         self._tooltip_label_font_key = None
 
@@ -96,6 +98,7 @@ class Renderer:
         valid_targets = player.valid_target_ids()
         self._draw_hyperlanes(galaxy, player, shake_camera, valid_targets)
         self._draw_gun_ranges(galaxy, shake_camera)
+        self._draw_escort_ranges(galaxy, shake_camera)
         self._draw_explosions(galaxy, shake_camera)
         self._draw_fleets(galaxy, shake_camera)
         self._draw_combat_shots(galaxy, shake_camera)
@@ -206,6 +209,42 @@ class Renderer:
             color = galaxy.empires[owner_id].color
             surface = self._get_range_surface(radius_i, color)
 
+            topleft = (int(screen_x) - radius_i - 2, int(screen_y) - radius_i - 2)
+            self.screen.blit(surface, topleft)
+
+    def _draw_escort_ranges(self, galaxy, camera):
+        entities = []
+        for empire_id, ship in galaxy.command.ships.items():
+            escorts = galaxy.empires[empire_id].escorts
+            if escorts < 1.0:
+                continue
+            if empire_id != config.PLAYER_ID and not config.COMMAND_SHOW_ENEMY_CAPITALS:
+                continue
+            entities.append((ship.position, escorts))
+        if not entities:
+            return
+
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        sw = self.screen.get_width()
+        sh = self.screen.get_height()
+        margin = self.RANGE_CULL_MARGIN * zoom
+
+        for position, escorts in entities:
+            radius = escort_range(escorts) * zoom
+            radius_i = int(radius)
+            if radius_i < 3:
+                continue
+
+            screen_x = position.x * zoom + offset_x
+            screen_y = position.y * zoom + offset_y
+            if screen_x < -margin - radius or screen_x > sw + margin + radius:
+                continue
+            if screen_y < -margin - radius or screen_y > sh + margin + radius:
+                continue
+
+            surface = self._get_range_surface(radius_i, config.GATHERING_POINT_COLOR)
             topleft = (int(screen_x) - radius_i - 2, int(screen_y) - radius_i - 2)
             self.screen.blit(surface, topleft)
 
@@ -413,6 +452,10 @@ class Renderer:
             ]
             pygame.draw.polygon(self.screen, color, points)
             pygame.draw.polygon(self.screen, config.BACKGROUND, points, 2)
+            if player_ship:
+                escorts = galaxy.empires[empire_id].escorts
+                if escorts >= 1.0:
+                    self._draw_escort_badge(center, escorts, ring_radius, zoom)
             if config.COMMAND_SHOW_ENEMY_CAPITALS:
                 label_text = "CAPITAL" if ship.system_id is not None else "COMMAND SHIP"
                 label = self.small_font.render(label_text, True, color)
@@ -420,6 +463,25 @@ class Renderer:
                 panel = label_pos.inflate(8, 4)
                 pygame.draw.rect(self.screen, config.PANEL, panel, border_radius=3)
                 self.screen.blit(label, label_pos)
+
+    def _draw_escort_badge(self, center, escorts: float, ring_radius: int, zoom: float) -> None:
+        pulse = int(math.sin(self.warn_flash_phase * 4.0) * 2)
+        shield_radius = ring_radius + max(4, int(4 * zoom)) + pulse
+        pygame.draw.circle(self.screen, config.VALID_TARGET_COLOR, center, shield_radius, 2)
+
+        label_text = f"ESC {escorts:.0f}"
+        label = self._escort_label_cache.get(label_text)
+        if label is None:
+            label = self.small_font.render(label_text, True, config.TEXT)
+            self._escort_label_cache[label_text] = label
+
+        label_pos = label.get_rect(midbottom=(center[0], center[1] - shield_radius - 4))
+        panel = label_pos.inflate(10, 5)
+        panel_bg = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
+        panel_bg.fill((*config.PANEL, 210))
+        pygame.draw.rect(panel_bg, (*config.VALID_TARGET_COLOR, 230), panel_bg.get_rect(), 1, border_radius=3)
+        self.screen.blit(panel_bg, panel.topleft)
+        self.screen.blit(label, label_pos)
 
     def _draw_missile(self, galaxy, fleet, sx: int, sy: int, zoom: float) -> None:
         pulse = (math.sin(self.warn_flash_phase * 12.0) + 1.0) * 0.5
@@ -794,9 +856,10 @@ class Renderer:
         player_systems = galaxy.empire_system_count(config.PLAYER_ID)
         player_ships = int(galaxy.empire_ship_count(config.PLAYER_ID))
         player_missiles = player_empire.missiles_remaining
+        player_escorts = int(player_empire.escorts)
         mood, mood_color = self._happiness_label(player_empire.happiness)
         stats = self.small_font.render(
-            f"{'Former empire' if galaxy.player_succession_complete else 'Your empire'}: {player_systems} systems    Ships: {player_ships}    Missiles: {player_missiles}",
+            f"{'Former empire' if galaxy.player_succession_complete else 'Your empire'}: {player_systems} systems    Ships: {player_ships}    Missiles: {player_missiles}    Escorts: {player_escorts}",
             True,
             player_empire.color,
         )
