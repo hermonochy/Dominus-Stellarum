@@ -126,6 +126,8 @@ You can recruit an escort screen for your command ship. Escorts:
 - **Soak incoming fire**: With 5 escorts roughly 2-in-3 shots are absorbed; with hundreds, the flagship is nearly untouchable. Absorbed shots attrit the escort count, so screens wear down under sustained fire.
 - **Cannot be taken over by the AI** — the escort pool is yours alone (unless you are killed), and works fully under autopilot.
 
+However, having many ships concentrated around the capaital may attract the unwanted precense of a nuke...
+
 #### Gathering points
 
 To avoid manually sending newly generated ships to frontier planets, **Middle-click** any system (yours, neutral, or enemy) to toggle it as a gathering point, marked with an orange reticle. Your systems automatically send newly produced ships to gathering points, choosing the best one based on:
@@ -138,7 +140,7 @@ Gathering points persist even if the system changes hands — place one deep in 
 
 #### Nuclear Warfare
 
-Arm nuclear targeting with N, then right-click an enemy system to launch. The missile destroys all ships in its blast radius and damages nearby systems. Both launcher and victim suffer citizen morale penalties—use carefully to avoid triggering rebellions.
+Arm nuclear targeting with N, then right-click an enemy system to launch. The missile destroys all ships in its blast radius and damages nearby system production. Both launcher and victim suffer citizen morale penalties—use carefully to avoid triggering rebellions.
 
 #### Revolts and Betrayals
 

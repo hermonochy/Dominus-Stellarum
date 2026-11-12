@@ -1,3 +1,5 @@
+import math
+import random
 import pygame
 
 from . import config
@@ -175,6 +177,8 @@ class MainMenu:
         self._controls_rect = None
         self._back_rect = None
         self._arrow_rects = []
+        self._backdrop = None
+        self._backdrop_size = None
 
     @property
     def galaxy_file(self):
@@ -266,12 +270,37 @@ class MainMenu:
 
     def draw(self) -> None:
         screen = pygame.display.get_surface()
-        screen.fill(config.BACKGROUND)
+        self._draw_backdrop(screen)
         if self.page == "controls":
             self._draw_controls_page(screen)
         else:
             self._draw_main_page(screen)
         pygame.display.flip()
+
+    def _draw_backdrop(self, screen: pygame.Surface) -> None:
+        size = screen.get_size()
+        if self._backdrop is None or self._backdrop_size != size:
+            width, height = size
+            surface = pygame.Surface(size).convert()
+            surface.fill(config.BACKGROUND)
+            rng = random.Random(41827)
+            haze = pygame.Surface(size, pygame.SRCALPHA)
+            for _ in range(15):
+                center = (rng.randrange(width), rng.randrange(height))
+                radius = rng.randint(max(45, min(size) // 12), max(70, min(size) // 4))
+                tint = rng.choice(((35, 52, 100), (65, 38, 92), (24, 70, 92)))
+                pygame.draw.circle(haze, (*tint, 9), center, radius)
+            haze = pygame.transform.smoothscale(haze, (max(1, width // 3), max(1, height // 3)))
+            surface.blit(pygame.transform.smoothscale(haze, size), (0, 0))
+            stars = pygame.Surface(size, pygame.SRCALPHA)
+            for _ in range(max(100, width * height // 8000)):
+                x, y = rng.randrange(width), rng.randrange(height)
+                radius = rng.choices((1, 2), (88, 12))[0]
+                pygame.draw.circle(stars, (170, 195, 235, rng.randint(45, 145)), (x, y), radius)
+            surface.blit(stars, (0, 0))
+            self._backdrop = surface
+            self._backdrop_size = size
+        screen.blit(self._backdrop, (0, 0))
 
     def _draw_main_page(self, screen: pygame.Surface) -> None:
         sw = screen.get_width()
@@ -284,7 +313,11 @@ class MainMenu:
         small_font = pygame.font.Font(None, 26)
 
         title = title_font.render("DOMINUS STELLARUM", True, config.TEXT)
-        screen.blit(title, title.get_rect(center=(sw // 2, int(sh * 0.15))))
+        title_rect = title.get_rect(center=(sw // 2, int(sh * 0.15)))
+        glow = title_font.render("DOMINUS STELLARUM", True, (90, 135, 205))
+        screen.blit(glow, glow.get_rect(center=(sw // 2, title_rect.centery + 2)))
+        screen.blit(title, title_rect)
+        pygame.draw.line(screen, config.LANE_HIGHLIGHT, (sw // 2 - 150, int(sh * 0.185)), (sw // 2 + 150, int(sh * 0.185)), 2)
         subtitle = small_font.render("GALACTIC CONQUEST SIMULATOR", True, config.MUTED_TEXT)
         screen.blit(subtitle, subtitle.get_rect(center=(sw // 2, int(sh * 0.21))))
 
@@ -295,9 +328,10 @@ class MainMenu:
                 self.selected = index
             active = index == self.selected
 
+            pygame.draw.rect(screen, (10, 17, 31) if not active else config.PANEL, rect, border_radius=9)
+            pygame.draw.rect(screen, config.LANE_HIGHLIGHT if active else config.LANE_COLOR, rect, 2 if active else 1, border_radius=9)
             if active:
-                pygame.draw.rect(screen, config.PANEL, rect, border_radius=8)
-                pygame.draw.rect(screen, config.LANE_HIGHLIGHT, rect, 2, border_radius=8)
+                pygame.draw.rect(screen, (32, 48, 76), (rect.x + 2, rect.y + 2, 3, rect.height - 4), border_radius=2)
 
             label_surface = label_font.render(setting.label, True, config.TEXT if active else config.MUTED_TEXT)
             screen.blit(label_surface, label_surface.get_rect(midleft=(rect.x + 16, rect.centery)))
@@ -322,6 +356,7 @@ class MainMenu:
         self._start_rect = pygame.Rect(0, 0, 280, 54)
         self._start_rect.center = (sw // 2, int(sh * 0.78))
         start_hovered = self._start_rect.collidepoint(mouse)
+        pygame.draw.rect(screen, (0, 0, 0), self._start_rect.move(0, 4), border_radius=10)
         pygame.draw.rect(
             screen,
             config.PANEL_LIGHT if start_hovered else config.PANEL,
@@ -341,6 +376,7 @@ class MainMenu:
         self._controls_rect = pygame.Rect(0, 0, 280, 46)
         self._controls_rect.center = (sw // 2, int(sh * 0.875))
         controls_hovered = self._controls_rect.collidepoint(mouse)
+        pygame.draw.rect(screen, (0, 0, 0), self._controls_rect.move(0, 3), border_radius=10)
         pygame.draw.rect(
             screen,
             config.PANEL_LIGHT if controls_hovered else config.PANEL,

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import math
 import random
 from typing import Optional
 
 import pygame
 
 from . import config
-from .models import CombatShot, Fleet, StarSystem
+from .models import Fleet, StarSystem
 
 def gun_range(entity) -> float:
     ships = max(1.0, entity.ships)
@@ -28,42 +27,6 @@ def _hit_probability(ship_count: float) -> float:
 
     return min(1.0, hit_prob)
 
-def _spawn_shots(
-    shooter_pos: pygame.Vector2,
-    target_pos: pygame.Vector2,
-    color: tuple[int, int, int],
-    shots_per_second: float,
-    dt: float,
-    rng: random.Random,
-) -> list[CombatShot]:
-    shots: list[CombatShot] = []
-
-    shot_count = max(
-        1,
-        int(shots_per_second * dt * min(3, 1.0)),
-    )
-
-    for _ in range(shot_count):
-        start = shooter_pos.copy() + pygame.Vector2(
-            rng.uniform(-8, 8),
-            rng.uniform(-8, 8),
-        )
-        end = target_pos.copy() + pygame.Vector2(
-            rng.uniform(-15, 15),
-            rng.uniform(-15, 15),
-        )
-        shots.append(
-            CombatShot(
-                start=start,
-                end=end,
-                color=color,
-                lifetime=config.SHOT_LIFETIME,
-                max_lifetime=config.SHOT_LIFETIME,
-            )
-        )
-
-    return shots
-
 def fire_at_target(
     shooter,
     target,
@@ -71,24 +34,22 @@ def fire_at_target(
     target_pos: pygame.Vector2,
     dt: float,
     dps_per_ship: float,
-    shooter_color: tuple[int, int, int],
     rng: random.Random,
     shooter_is_system: bool = False,
     max_effective_ships: Optional[float] = None,
-    spawn_visuals: bool = True,
-) -> list[CombatShot]:
+) -> None:
     if shooter.owner_id == target.owner_id:
-        return []
+        return
 
     if shooter.owner_id is None or shooter.ships <= config.COMBAT_MIN_SHIPS:
-        return []
+        return
 
     if target.owner_id is None or target.ships <= config.COMBAT_MIN_SHIPS:
-        return []
+        return
 
     distance = shooter_pos.distance_to(target_pos)
     if distance > gun_range(shooter):
-        return []
+        return
 
     jitter = rng.uniform(
         config.COMBAT_JITTER_MIN,
@@ -108,24 +69,6 @@ def fire_at_target(
 
     if target.ships < config.COMBAT_MIN_SHIPS:
         target.ships = 0.0
-
-    if not spawn_visuals:
-        return []
-
-    shots_per_second = (
-        config.DEFENDER_SHOTS_PER_SECOND
-        if shooter_is_system
-        else config.ATTACKER_SHOTS_PER_SECOND
-    )
-
-    return _spawn_shots(
-        shooter_pos,
-        target_pos,
-        shooter_color,
-        shots_per_second,
-        dt,
-        rng,
-    )
 
 def resolve_fleet_arrival(
     fleet: Fleet,

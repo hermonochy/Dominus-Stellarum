@@ -82,7 +82,7 @@ class GameApp:
 
             if self._game_running():
                 simulation_dt = dt * self.speed
-                self.galaxy.update(simulation_dt)
+                self.galaxy.update(simulation_dt, visual_dt=dt)
                 self.ai.update(simulation_dt)
                 self._drain_pending_messages()
 
