@@ -76,3 +76,11 @@ class CombatShot:
     color: tuple[int, int, int]
     lifetime: float
     max_lifetime: float
+
+
+@dataclass
+class CombatImpact:
+    pos: pygame.Vector2
+    color: tuple[int, int, int]
+    age: float
+    max_age: float

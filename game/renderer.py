@@ -1,4 +1,5 @@
 import math
+import random
 import pygame
 
 from . import config
@@ -23,6 +24,8 @@ class Renderer:
         self._ship_label_cache: dict[tuple[int, str], pygame.Surface] = {}
         self._fleet_label_cache: dict[str, pygame.Surface] = {}
         self._escort_label_cache: dict[str, pygame.Surface] = {}
+        self._missile_label = None
+        self._missile_label_bg = None
         self._recache_fonts()
         self._bottom_font_key = None
         self._empire_row_font = None
@@ -40,6 +43,8 @@ class Renderer:
         self.shake_intensity = 0.0
         self.warn_flash_phase = 0.0
         self.alerts: list[str] = []
+        self._space_background = None
+        self._space_background_size = None
 
     def _recache_fonts(self):
         w = self.screen.get_width()
@@ -55,6 +60,9 @@ class Renderer:
         self.small_font = pygame.font.Font(None, font_size[1])
         self.tiny_font = pygame.font.Font(None, font_size[2])
         self.huge_font = pygame.font.Font(None, font_size[3])
+        self._missile_label = self.tiny_font.render("NUCLEAR", True, (255, 170, 125))
+        self._missile_label_bg = pygame.Surface((self._missile_label.get_width() + 8, self._missile_label.get_height() + 6), pygame.SRCALPHA)
+        self._missile_label_bg.fill((20, 7, 8, 205))
         self._ship_font_cache.clear()
         self._ship_label_cache.clear()
         self._fleet_label_cache.clear()
@@ -86,7 +94,7 @@ class Renderer:
         self.galaxy = galaxy
         self._recache_fonts()
         self._update_shake_state(galaxy, dt)
-        self.screen.fill(config.BACKGROUND)
+        self._draw_space_background()
         shake_offset = self._compute_shake_offset()
         shake_camera = camera
         if shake_offset != (0, 0):
@@ -99,11 +107,12 @@ class Renderer:
         self._draw_hyperlanes(galaxy, player, shake_camera, valid_targets)
         self._draw_gun_ranges(galaxy, shake_camera)
         self._draw_escort_ranges(galaxy, shake_camera)
-        self._draw_explosions(galaxy, shake_camera)
         self._draw_fleets(galaxy, shake_camera)
-        self._draw_combat_shots(galaxy, shake_camera)
         self._draw_systems(galaxy, player, shake_camera, valid_targets)
         self._draw_command_ships(galaxy, player, shake_camera)
+        self._draw_combat_shots(galaxy, shake_camera)
+        self._draw_combat_impacts(galaxy, shake_camera)
+        self._draw_explosions(galaxy, shake_camera)
         self._draw_missile_warnings(galaxy, shake_camera)
         self._draw_nuke_target_preview(galaxy, player, shake_camera)
         self._draw_top_bar(galaxy, player, paused, speed)
@@ -112,6 +121,36 @@ class Renderer:
         self._draw_camera_info(camera)
         self._draw_game_state(galaxy)
         self.popup.draw(self.screen)
+
+
+    def _draw_space_background(self) -> None:
+        size = self.screen.get_size()
+        if self._space_background is None or self._space_background_size != size:
+            width, height = size
+            background = pygame.Surface(size).convert()
+            background.fill(config.BACKGROUND)
+            haze = pygame.Surface(size, pygame.SRCALPHA)
+            rng = random.Random(73191)
+            for _ in range(18):
+                x = rng.randrange(width)
+                y = rng.randrange(height)
+                radius = rng.randint(max(35, min(width, height) // 14), max(60, min(width, height) // 5))
+                tint = rng.choice(((30, 48, 92), (48, 35, 88), (22, 70, 92), (72, 42, 78)))
+                pygame.draw.circle(haze, (*tint, rng.randint(5, 13)), (x, y), radius)
+            haze = pygame.transform.smoothscale(haze, (max(1, width // 3), max(1, height // 3)))
+            haze = pygame.transform.smoothscale(haze, size)
+            background.blit(haze, (0, 0))
+            stars = pygame.Surface(size, pygame.SRCALPHA)
+            for _ in range(max(90, width * height // 8500)):
+                x = rng.randrange(width)
+                y = rng.randrange(height)
+                radius = rng.choices((1, 2, 3), (82, 16, 2))[0]
+                alpha = rng.randint(45, 155)
+                pygame.draw.circle(stars, (155, 185, 235, alpha), (x, y), radius)
+            background.blit(stars, (0, 0))
+            self._space_background = background
+            self._space_background_size = size
+        self.screen.blit(self._space_background, (0, 0))
 
     def _update_shake_state(self, galaxy, dt: float) -> None:
         fresh = [
@@ -128,9 +167,10 @@ class Renderer:
             return (0, 0)
         progress = self.shake_timer / config.SHAKE_DURATION
         magnitude = self.shake_intensity * progress
+        ticks = pygame.time.get_ticks()
         return (
-            int(pygame.time.get_ticks() % 1000 / 1000.0 * 2.0 * math.pi and (math.sin(pygame.time.get_ticks() * 0.07) * magnitude)),
-            int(math.sin(pygame.time.get_ticks() * 0.09) * magnitude),
+            int(math.sin(ticks * 0.07) * magnitude),
+            int(math.sin(ticks * 0.09) * magnitude),
         )
 
     def empire_at(self, pos):
@@ -256,59 +296,94 @@ class Renderer:
         sh = self.screen.get_height()
 
         for explosion in galaxy.explosions:
-            progress = min(1.0, explosion.age / explosion.max_age)
-            fade = 1.0 - progress
-            screen_x = explosion.pos.x * zoom + offset_x
-            screen_y = explosion.pos.y * zoom + offset_y
-            peak_radius = explosion.peak_radius * zoom
-            if screen_x < -peak_radius - 50 or screen_x > sw + peak_radius + 50:
+            progress = min(1.0, max(0.0, explosion.age / explosion.max_age))
+            sx = int(explosion.pos.x * zoom + offset_x)
+            sy = int(explosion.pos.y * zoom + offset_y)
+            peak = max(4, int(explosion.peak_radius * zoom))
+            if sx < -peak - 48 or sx > sw + peak + 48 or sy < -peak - 48 or sy > sh + peak + 48:
                 continue
-            if screen_y < -peak_radius - 50 or screen_y > sh + peak_radius + 50:
+            seed = explosion.pos.x * 0.013 + explosion.pos.y * 0.017
+            self._draw_nuclear_blast((sx, sy), peak, progress, explosion.age, seed, zoom)
+
+    def _draw_nuclear_blast(self, center, peak: int, progress: float, age: float, seed: float, zoom: float) -> None:
+        sx, sy = center
+        scale = max(0.65, min(1.7, zoom))
+        dark = config.BACKGROUND
+
+        flash = max(0.0, 1.0 - progress / 0.055)
+        if flash > 0.0:
+            flash_radius = max(2, int(peak * (0.055 + 0.14 * (1.0 - flash))))
+            pygame.draw.circle(self.screen, (255, 255, 245), center, flash_radius)
+            pygame.draw.circle(self.screen, (255, 226, 170), center, max(2, int(flash_radius * 1.75)), max(1, int(3 * scale)))
+            pygame.draw.circle(self.screen, (255, 130, 52), center, max(3, int(flash_radius * 2.25)), max(1, int(2 * scale)))
+
+        for wave in range(3):
+            delay = wave * 0.055
+            wave_phase = min(1.0, max(0.0, (progress - delay) / 0.27))
+            if wave_phase <= 0.0:
                 continue
+            ease = 1.0 - (1.0 - wave_phase) ** 2.8
+            radius = max(2, int(peak * (0.035 + 0.96 * ease)))
+            fade = min(1.0, max(0.0, (1.0 - wave_phase) * 1.9))
+            fade *= min(1.0, max(0.0, (0.54 - progress + delay) * 3.2))
+            if fade <= 0.0:
+                continue
+            width = max(1, int((8 - wave * 2) * scale * fade))
+            red = (160, 34, 18)
+            orange = (int(130 + 125 * fade), int(34 + 123 * fade), int(18 + 62 * fade))
+            pale = (int(95 + 160 * fade), int(42 + 193 * fade), int(25 + 185 * fade))
+            pygame.draw.circle(self.screen, red, center, radius, width + max(1, int(3 * scale)))
+            pygame.draw.circle(self.screen, orange, center, radius, width)
+            pygame.draw.circle(self.screen, pale, center, max(1, radius - max(1, width)), max(1, int(scale)))
 
-            if progress < 0.2:
-                flash_progress = progress / 0.2
-                flash_radius = max(2.0, peak_radius * 0.12 * flash_progress)
-                flash_alpha = int(255 * (1.0 - flash_progress * 0.5))
-                flash_surface = pygame.Surface(
-                    (int(flash_radius * 2) + 4, int(flash_radius * 2) + 4),
-                    pygame.SRCALPHA,
-                )
-                pygame.draw.circle(
-                    flash_surface,
-                    (255, 255, 255, flash_alpha),
-                    (int(flash_radius) + 2, int(flash_radius) + 2),
-                    int(flash_radius),
-                )
-                self.screen.blit(
-                    flash_surface,
-                    (int(screen_x) - int(flash_radius) - 2, int(screen_y) - int(flash_radius) - 2),
-                )
+        if progress < 0.78:
+            expansion = min(1.0, progress / 0.22)
+            if progress < 0.22:
+                fireball = 0.075 + 0.275 * (1.0 - (1.0 - expansion) ** 1.5)
+            else:
+                contraction = min(1.0, (progress - 0.22) / 0.56)
+                fireball = 0.35 * (1.0 - contraction) ** 1.35
+            heat = max(0.0, 1.0 - max(0.0, progress - 0.18) / 0.6)
+            outer_radius = max(2, int(peak * fireball))
+            outer_color = tuple(int(dark[i] + ((115, 25, 12)[i] - dark[i]) * heat) for i in range(3))
+            red_color = tuple(int(dark[i] + ((230, 55, 18)[i] - dark[i]) * heat) for i in range(3))
+            orange_color = tuple(int(dark[i] + ((255, 132, 35)[i] - dark[i]) * heat) for i in range(3))
+            gold_color = tuple(int(dark[i] + ((255, 211, 116)[i] - dark[i]) * heat) for i in range(3))
+            core_color = tuple(int(dark[i] + ((255, 249, 225)[i] - dark[i]) * heat) for i in range(3))
+            pygame.draw.circle(self.screen, outer_color, center, outer_radius)
+            pygame.draw.circle(self.screen, red_color, center, max(1, int(outer_radius * 0.82)))
+            pygame.draw.circle(self.screen, orange_color, center, max(1, int(outer_radius * 0.61)))
+            pygame.draw.circle(self.screen, gold_color, center, max(1, int(outer_radius * 0.37)))
+            pygame.draw.circle(self.screen, core_color, center, max(1, int(outer_radius * 0.17)))
+            if heat > 0.35:
+                pygame.draw.circle(self.screen, (255, 192, 92), center, outer_radius, max(1, int(3 * scale * heat)))
 
-            shock_radius = peak_radius * (1.0 - fade * fade)
-            for i in range(3):
-                ring_progress = max(0.0, progress - i * 0.12)
-                if ring_progress <= 0.0:
-                    continue
-                ring_ease = 1.0 - (1.0 - ring_progress) ** 2
-                ring_radius = peak_radius * ring_ease
-                ring_alpha = int(220 * fade * (1.0 - i * 0.28))
-                if ring_radius < 1 or ring_alpha <= 0:
-                    continue
-                pygame.draw.circle(
-                    self.screen,
-                    (255, 200, 90, ring_alpha),
-                    (int(screen_x), int(screen_y)),
-                    int(ring_radius),
-                    max(1, int(4 * fade) + 1),
-                )
-                pygame.draw.circle(
-                    self.screen,
-                    (255, 240, 210),
-                    (int(screen_x), int(screen_y)),
-                    max(1, int(ring_radius * 0.92)),
-                    max(1, int(2 * fade)),
-                )
+        if progress < 0.9:
+            debris_phase = min(1.0, progress / 0.9)
+            debris_ease = 1.0 - (1.0 - debris_phase) ** 1.7
+            debris_fade = max(0.0, 1.0 - debris_phase ** 1.35)
+            reach = peak * (0.11 + 0.88 * debris_ease)
+            count = 24
+            for index in range(count):
+                angle = seed + index * (math.tau / count) + math.sin(age * 2.7 + index * 1.9) * 0.025
+                variation = 0.78 + 0.22 * math.sin(index * 2.37 + seed * 3.0)
+                distance = reach * variation
+                px = int(sx + math.cos(angle) * distance)
+                py = int(sy + math.sin(angle) * distance)
+                trail_length = max(2, int(peak * (0.018 + 0.035 * (1.0 - debris_phase))))
+                tx = int(px - math.cos(angle) * trail_length)
+                ty = int(py - math.sin(angle) * trail_length)
+                ember = (255, int(95 + 125 * debris_fade), int(32 + 95 * debris_fade))
+                hot_ember = (255, int(175 + 70 * debris_fade), int(120 + 100 * debris_fade))
+                pygame.draw.line(self.screen, (105, 34, 16), (tx, ty), (px, py), max(2, int(4 * scale * debris_fade)))
+                pygame.draw.line(self.screen, ember, (tx, ty), (px, py), max(1, int(2 * scale * debris_fade)))
+                pygame.draw.circle(self.screen, hot_ember, (px, py), max(1, int(1.7 * scale * debris_fade)))
+
+        if progress > 0.16:
+            afterglow = max(0.0, 1.0 - (progress - 0.16) / 0.84)
+            afterglow_radius = max(2, int(peak * (0.18 + 0.78 * min(1.0, progress / 0.5))))
+            after_color = (int(65 + 110 * afterglow), int(22 + 38 * afterglow), int(18 + 18 * afterglow))
+            pygame.draw.circle(self.screen, after_color, center, afterglow_radius, max(1, int(2 * scale * afterglow)))
 
     def _draw_hyperlanes(self, galaxy, player, camera, valid_targets):
         selected = player.selected_system_id
@@ -337,7 +412,11 @@ class Renderer:
                 (second_id == selected and first_id in valid_targets)
             )
             color = config.LANE_HIGHLIGHT if highlighted else config.LANE_COLOR
+            if highlighted:
+                pygame.draw.line(self.screen, (35, 75, 90), (first_x, first_y), (second_x, second_y), line_width + 4)
             pygame.draw.line(self.screen, color, (first_x, first_y), (second_x, second_y), line_width)
+            if highlighted:
+                pygame.draw.line(self.screen, (190, 230, 215), (first_x, first_y), (second_x, second_y), 1)
 
     def _draw_fleets(self, galaxy, camera):
         zoom = camera['zoom']
@@ -406,6 +485,18 @@ class Renderer:
                     min(255, color[2] + 50),
                 )
                 pygame.draw.polygon(self.screen, outline_color, points, 1)
+                engine_len = max(3, int(shape_size * 0.9))
+                engine_end = (
+                    int((position.x - direction.x * (tail_len + engine_len)) * zoom + offset_x),
+                    int((position.y - direction.y * (tail_len + engine_len)) * zoom + offset_y),
+                )
+                engine_start = (
+                    int((position.x - direction.x * tail_len) * zoom + offset_x),
+                    int((position.y - direction.y * tail_len) * zoom + offset_y),
+                )
+                pygame.draw.line(self.screen, (70, 190, 255), engine_start, engine_end, max(2, int(shape_size * 0.32)))
+                pygame.draw.line(self.screen, (205, 245, 255), engine_start, engine_end, max(1, int(shape_size * 0.12)))
+                pygame.draw.circle(self.screen, (225, 245, 255), (sx, sy), max(1, int(shape_size * 0.13)))
 
             text = str(int(fleet.ships))
             label = self._fleet_label_cache.get(text)
@@ -485,39 +576,45 @@ class Renderer:
 
     def _draw_missile(self, galaxy, fleet, sx: int, sy: int, zoom: float) -> None:
         pulse = (math.sin(self.warn_flash_phase * 12.0) + 1.0) * 0.5
-        halo_radius = int((8 + pulse * 6) * max(1.0, zoom * 0.5))
-        pygame.draw.circle(self.screen, (255, 80, 60), (sx, sy), halo_radius, 2)
-        core_radius = max(3, int(4 * max(1.0, zoom * 0.5)))
-        pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy), core_radius)
-
+        scale = max(0.7, min(1.7, zoom))
+        direction = pygame.Vector2(1.0, 0.0)
         if len(fleet.route) > 1 and fleet.route_index < len(fleet.route):
             current_node = galaxy.systems[fleet.route[fleet.route_index - 1]]
             next_node = galaxy.systems[fleet.route[fleet.route_index]]
             direction = next_node.pos - current_node.pos
-            if direction.length_squared() > 0:
+            if direction.length_squared() > 0.0:
                 direction = direction.normalize()
-                trail_len = 22 + pulse * 8
-                trail_start = (
-                    sx - direction.x * trail_len,
-                    sy - direction.y * trail_len,
-                )
-                trail_surface = pygame.Surface((self.screen.get_width(), self.screen.get_height()), pygame.SRCALPHA)
-                pygame.draw.line(
-                    trail_surface,
-                    (255, 120, 60, 180),
-                    trail_start,
-                    (sx, sy),
-                    max(2, int(3 * max(1.0, zoom * 0.5))),
-                )
-                self.screen.blit(trail_surface, (0, 0))
-
-        label = self.tiny_font.render("NUCLEAR", True, (255, 120, 90))
-        lx = sx - label.get_width() // 2
-        ly = sy + halo_radius + 4
-        bg = pygame.Surface((label.get_width() + 6, label.get_height() + 4), pygame.SRCALPHA)
-        bg.fill((0, 0, 0, 190))
-        self.screen.blit(bg, (lx - 3, ly - 2))
-        self.screen.blit(label, (lx, ly))
+        dx = direction.x
+        dy = direction.y
+        px = -dy
+        py = dx
+        trail_len = (34.0 + pulse * 10.0) * scale
+        trail_start = (int(sx - dx * trail_len), int(sy - dy * trail_len))
+        trail_end = (int(sx - dx * trail_len * 0.18), int(sy - dy * trail_len * 0.18))
+        pygame.draw.line(self.screen, (65, 19, 18), trail_start, (sx, sy), max(7, int(10 * scale)))
+        pygame.draw.line(self.screen, (175, 43, 19), trail_start, (sx, sy), max(5, int(7 * scale)))
+        pygame.draw.line(self.screen, (255, 92, 27), trail_start, (sx, sy), max(3, int(4 * scale)))
+        pygame.draw.line(self.screen, (255, 207, 126), trail_start, trail_end, max(1, int(2 * scale)))
+        for index in range(3):
+            offset = trail_len * (0.34 + index * 0.19)
+            plume_center = (int(sx - dx * offset), int(sy - dy * offset))
+            plume_radius = max(1, int((4 - index) * scale * (0.7 + pulse * 0.3)))
+            pygame.draw.circle(self.screen, (255, 83 + index * 25, 25), plume_center, plume_radius)
+        halo_radius = max(7, int((9 + pulse * 3) * scale))
+        pygame.draw.circle(self.screen, (100, 25, 17), (sx, sy), halo_radius + 4)
+        pygame.draw.circle(self.screen, (255, 72, 27), (sx, sy), halo_radius, max(1, int(2 * scale)))
+        tip = (int(sx + dx * 7 * scale), int(sy + dy * 7 * scale))
+        rear = (int(sx - dx * 6 * scale), int(sy - dy * 6 * scale))
+        side_a = (int(sx + px * 4 * scale), int(sy + py * 4 * scale))
+        side_b = (int(sx - px * 4 * scale), int(sy - py * 4 * scale))
+        pygame.draw.polygon(self.screen, (255, 112, 42), (tip, side_a, rear, side_b))
+        pygame.draw.polygon(self.screen, (255, 231, 178), (tip, (int(sx + px * 1.5 * scale), int(sy + py * 1.5 * scale)), rear, (int(sx - px * 1.5 * scale), int(sy - py * 1.5 * scale))))
+        pygame.draw.circle(self.screen, (255, 255, 242), (sx, sy), max(2, int(2.5 * scale)))
+        if self._missile_label is not None and self._missile_label_bg is not None:
+            lx = sx - self._missile_label.get_width() // 2
+            ly = sy + halo_radius + 5
+            self.screen.blit(self._missile_label_bg, (lx - 4, ly - 3))
+            self.screen.blit(self._missile_label, (lx, ly))
 
     def _draw_missile_warnings(self, galaxy, camera) -> None:
         missiles = [fleet for fleet in galaxy.fleets if fleet.is_missile]
@@ -610,28 +707,103 @@ class Renderer:
         offset_y = camera['offset_y']
         sw = self.screen.get_width()
         sh = self.screen.get_height()
-        thickness = int(max(1, 3 * zoom))
+        scale = max(0.65, min(1.7, zoom))
+        tail_length_scale = max(0.85, min(1.3, zoom))
 
         for shot in galaxy.combat_shots:
+            progress = 1.0 - shot.lifetime / shot.max_lifetime
+            progress = min(1.0, max(0.0, progress))
             start_x = shot.start.x * zoom + offset_x
             start_y = shot.start.y * zoom + offset_y
-            end_x = shot.end.x * zoom + offset_x
-            end_y = shot.end.y * zoom + offset_y
-
-            if max(start_x, end_x) < -20 or min(start_x, end_x) > sw + 20:
+            delta_x = (shot.end.x - shot.start.x) * zoom
+            delta_y = (shot.end.y - shot.start.y) * zoom
+            path_length = math.hypot(delta_x, delta_y)
+            if path_length < 0.5:
                 continue
-            if max(start_y, end_y) < -20 or min(start_y, end_y) > sh + 20:
+            direction_x = delta_x / path_length
+            direction_y = delta_y / path_length
+            head_x = start_x + delta_x * progress
+            head_y = start_y + delta_y * progress
+            tail_length = min(38.0, max(14.0, path_length * 0.16)) * tail_length_scale
+            tail_x = head_x - direction_x * tail_length
+            tail_y = head_y - direction_y * tail_length
+            if head_x < -tail_length - 24 or head_x > sw + tail_length + 24:
+                continue
+            if head_y < -tail_length - 24 or head_y > sh + tail_length + 24:
                 continue
 
-            ratio = max(0.0, min(1.0, shot.lifetime / shot.max_lifetime))
-            color = (
-                int(shot.color[0] * ratio),
-                int(shot.color[1] * ratio),
-                int(shot.color[2] * ratio),
+            fade = max(0.38, 1.0 - progress * 0.28)
+            color = tuple(max(0, min(255, int(channel * fade))) for channel in shot.color)
+            hot_color = tuple(max(0, min(255, int(channel * 0.58 + 255 * 0.42))) for channel in color)
+            dark_color = tuple(max(0, min(255, int(channel * 0.34))) for channel in color)
+            radius = max(1.5, 2.5 * scale)
+            tail = (int(tail_x), int(tail_y))
+            head = (int(head_x), int(head_y))
+            pygame.draw.line(self.screen, dark_color, tail, head, max(4, int(7 * scale)))
+            pygame.draw.line(self.screen, color, tail, head, max(2, int(4 * scale)))
+            pygame.draw.line(self.screen, hot_color, tail, head, max(1, int(2 * scale)))
+            pygame.draw.circle(self.screen, color, head, max(3, int(radius * 1.8)))
+            pygame.draw.circle(self.screen, (255, 255, 245), head, max(1, int(radius * 0.68)))
+
+            perpendicular_x = -direction_y
+            perpendicular_y = direction_x
+            nose = (int(head_x + direction_x * radius * 2.2), int(head_y + direction_y * radius * 2.2))
+            rear = (int(head_x - direction_x * radius * 1.6), int(head_y - direction_y * radius * 1.6))
+            wing_a = (int(head_x + perpendicular_x * radius * 1.05), int(head_y + perpendicular_y * radius * 1.05))
+            wing_b = (int(head_x - perpendicular_x * radius * 1.05), int(head_y - perpendicular_y * radius * 1.05))
+            pygame.draw.polygon(self.screen, hot_color, (nose, wing_a, rear, wing_b))
+            inner_a = (int(head_x + perpendicular_x * radius * 0.42), int(head_y + perpendicular_y * radius * 0.42))
+            inner_b = (int(head_x - perpendicular_x * radius * 0.42), int(head_y - perpendicular_y * radius * 0.42))
+            pygame.draw.polygon(self.screen, (255, 255, 250), (nose, inner_a, rear, inner_b))
+
+    def _draw_combat_impacts(self, galaxy, camera):
+        zoom = camera['zoom']
+        offset_x = camera['offset_x']
+        offset_y = camera['offset_y']
+        screen_width = self.screen.get_width()
+        screen_height = self.screen.get_height()
+        scale = max(0.65, min(1.7, zoom))
+        background = config.BACKGROUND
+        for impact in galaxy.combat_impacts:
+            progress = min(1.0, max(0.0, impact.age / impact.max_age))
+            fade = (1.0 - progress) ** 1.7
+            if fade <= 0.0:
+                continue
+            sx = int(impact.pos.x * zoom + offset_x)
+            sy = int(impact.pos.y * zoom + offset_y)
+            if sx < -44 or sx > screen_width + 44 or sy < -44 or sy > screen_height + 44:
+                continue
+            ease = 1.0 - (1.0 - progress) ** 2.2
+            radius = max(2, int((4.0 + 19.0 * ease) * scale))
+            base = impact.color
+            ring_color = tuple(
+                max(0, min(255, int(background[channel] + (base[channel] - background[channel]) * fade)))
+                for channel in range(3)
             )
-            pygame.draw.line(self.screen, color, (start_x, start_y), (end_x, end_y), thickness)
-            dot_radius = max(1, int(3 * zoom))
-            pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (int(end_x), int(end_y)), dot_radius)
+            hot_color = tuple(
+                max(0, min(255, int(background[channel] + ((base[channel] * 0.45 + 255 * 0.55) - background[channel]) * fade)))
+                for channel in range(3)
+            )
+            core_fade = max(0.0, 1.0 - progress / 0.62)
+            core_color = tuple(
+                max(0, min(255, int(background[channel] + (255 - background[channel]) * core_fade)))
+                for channel in range(3)
+            )
+            pygame.draw.circle(self.screen, ring_color, (sx, sy), radius, max(1, int(2.4 * scale * fade)))
+            inner_radius = max(1, int(radius * 0.58))
+            pygame.draw.circle(self.screen, hot_color, (sx, sy), inner_radius, max(1, int(1.5 * scale * fade)))
+            if core_fade > 0.0:
+                pygame.draw.circle(self.screen, hot_color, (sx, sy), max(2, int((5.0 - 2.5 * progress) * scale)))
+                pygame.draw.circle(self.screen, core_color, (sx, sy), max(1, int(2.0 * scale * core_fade)))
+            for ray in range(8):
+                angle = ray * (math.tau / 8.0) + impact.age * (2.2 if ray % 2 else -1.7)
+                length = (5.0 + (ray % 3) * 2.2) * scale * fade
+                inner = max(1.0, radius * 0.34)
+                x1 = int(sx + math.cos(angle) * inner)
+                y1 = int(sy + math.sin(angle) * inner)
+                x2 = int(sx + math.cos(angle) * (inner + length))
+                y2 = int(sy + math.sin(angle) * (inner + length))
+                pygame.draw.line(self.screen, ring_color, (x1, y1), (x2, y2), max(1, int(2.0 * scale * fade)))
 
     def _get_ship_font(self, font_size: int) -> pygame.font.Font:
         font = self._ship_font_cache.get(font_size)
@@ -715,6 +887,8 @@ class Renderer:
                     pygame.draw.line(self.screen, c, (cx - dx * arm, cy), (cx + dx * arm, cy), 2)
                     pygame.draw.line(self.screen, c, (cx, cy - dy * arm), (cx, cy + dy * arm), 2)
             dr = int(display_radius)
+            halo = max(dr + 3, int((dr + 7) * max(0.7, zoom)))
+            pygame.draw.circle(self.screen, tuple(int(channel * 0.42) for channel in color), (sx, sy), halo, 1)
             pygame.draw.circle(self.screen, config.STAR_CORE_COLOR, (sx, sy), dr + int(2 * zoom))
             pygame.draw.circle(self.screen, color, (sx, sy), dr)
             label = self._get_ship_label(font_size, str(int(system.ships)))
@@ -839,6 +1013,8 @@ class Renderer:
     def _draw_top_bar(self, galaxy, player, paused, speed):
         sw = self.screen.get_width()
         pygame.draw.rect(self.screen, config.PANEL, (0, 0, sw, config.TOP_BAR_HEIGHT))
+        pygame.draw.line(self.screen, config.LANE_COLOR, (0, config.TOP_BAR_HEIGHT - 1), (sw, config.TOP_BAR_HEIGHT - 1), 2)
+        pygame.draw.line(self.screen, (35, 52, 82), (0, 1), (sw, 1), 1)
         state = "AI SPECTATOR" if galaxy.player_succession_complete else ("FLEETS: AI | COMMAND: YOU" if galaxy.autopilot else ("PAUSED" if paused or self.popup.visible else "RUNNING"))
         title = self.font.render("DOMINUS STELLARUM", True, config.TEXT)
         self.screen.blit(title, (18, 12))
@@ -878,6 +1054,7 @@ class Renderer:
         bottom_y = sh - bar_height
 
         pygame.draw.rect(self.screen, config.PANEL, (0, bottom_y, sw, bar_height))
+        pygame.draw.line(self.screen, (35, 52, 82), (0, bottom_y + 1), (sw, bottom_y + 1), 1)
 
         highlight = config.LANE_HIGHLIGHT if ui.bar_dragging else config.LANE_COLOR
         pygame.draw.line(self.screen, highlight, (0, bottom_y), (sw, bottom_y), 2)

@@ -9,19 +9,23 @@ import pygame
 from . import config
 from .combat import fire_at_target, gun_range, resolve_fleet_arrival
 from .command import CommandDirector
-from .models import CombatShot, Empire, Explosion, Fleet, StarSystem
+from .models import CombatImpact, CombatShot, Empire, Explosion, Fleet, StarSystem
 from .galaxy_generation import GalaxyLayout, active_empire_indices, generate_random_galaxy, resolve_empire_starts
 
 class Galaxy:
     def __init__(self, seed: Optional[int] = None, layout: GalaxyLayout | None = None):
         self.rng = random.Random(seed)
+        self.visual_rng = random.Random(None if seed is None else seed ^ 0x5EEDC0DE)
         self.layout = layout
         self.empire_count = config.EMPIRE_COUNT
         self.systems: list[StarSystem] = []
         self.empires: list[Empire] = []
         self.fleets: list[Fleet] = []
         self.combat_shots: list[CombatShot] = []
+        self.combat_impacts: list[CombatImpact] = []
         self.explosions: list[Explosion] = []
+        self._shot_stream_elapsed: dict[tuple[str, int, int], float] = {}
+        self._active_shot_streams: set[tuple[str, int, int]] = set()
         self.edges: set[tuple[int, int]] = set()
         self.neighbors: dict[int, set[int]] = {}
         self.next_fleet_id = 0
@@ -50,6 +54,7 @@ class Galaxy:
         self.path_cache: dict[tuple[int, int], Optional[tuple[int, ...]]] = {}
         self._ship_count_cache: Optional[dict[int, float]] = None
         self._combat_tick_accum = 0.0
+        self._combat_tick_visual_accum = 0.0
         self._gather_dispatch_timers: dict[int, float] = {}
 
         self.generate()
@@ -59,7 +64,10 @@ class Galaxy:
         self.empires.clear()
         self.fleets.clear()
         self.combat_shots.clear()
+        self.combat_impacts.clear()
         self.explosions.clear()
+        self._shot_stream_elapsed.clear()
+        self._active_shot_streams.clear()
         self.edges.clear()
         self.neighbors.clear()
         self.next_fleet_id = 0
@@ -79,6 +87,7 @@ class Galaxy:
         self.path_cache.clear()
         self._ship_count_cache = None
         self._combat_tick_accum = 0.0
+        self._combat_tick_visual_accum = 0.0
         self._gather_dispatch_timers.clear()
         self.sim_time = 0.0
         self.colonization_history.clear()
@@ -135,7 +144,9 @@ class Galaxy:
             nukes = self.rng.randint(config.NUCLEAR_DEPOT_MIN, config.NUCLEAR_DEPOT_MAX)
             self.systems[idx].hidden_nukes = nukes
 
-    def update(self, dt: float) -> None:
+    def update(self, dt: float, visual_dt: float | None = None) -> None:
+        if visual_dt is None:
+            visual_dt = dt
         self._ship_count_cache = None
         self.sim_time += dt
         if self.nuclear_cooldown > 0.0:
@@ -147,19 +158,41 @@ class Galaxy:
         for explosion in self.explosions:
             explosion.age += dt
         self.explosions = [e for e in self.explosions if e.age < e.max_age]
+        for impact in self.combat_impacts:
+            impact.age += visual_dt
+        self.combat_impacts = [impact for impact in self.combat_impacts if impact.age < impact.max_age]
+        surviving_shots = []
         for shot in self.combat_shots:
-            shot.lifetime -= dt
-        self.combat_shots = [shot for shot in self.combat_shots if shot.lifetime > 0.0]
+            shot.lifetime -= visual_dt
+            if shot.lifetime > 0.0:
+                surviving_shots.append(shot)
+            else:
+                impact_age = -shot.lifetime
+                if impact_age < config.SHOT_IMPACT_DURATION:
+                    self.combat_impacts.append(
+                        CombatImpact(
+                            pos=shot.end.copy(),
+                            color=shot.color,
+                            age=impact_age,
+                            max_age=config.SHOT_IMPACT_DURATION,
+                        )
+                    )
+        self.combat_shots = surviving_shots
+        if len(self.combat_impacts) > config.MAX_VISIBLE_IMPACTS:
+            self.combat_impacts = self.combat_impacts[-config.MAX_VISIBLE_IMPACTS:]
         self._prune_colonization_history()
         self._produce_ships(dt)
         forces_before = self._snapshot_forces()
         self._update_fleets(dt)
         self._combat_tick_accum += dt
+        self._combat_tick_visual_accum += visual_dt
         combat_interval = 1.0 / config.COMBAT_TICKS_PER_SECOND
         if self._combat_tick_accum >= combat_interval:
             combat_dt = self._combat_tick_accum
+            combat_visual_dt = self._combat_tick_visual_accum
             self._combat_tick_accum = 0.0
-            self._update_standoff_combat(combat_dt)
+            self._combat_tick_visual_accum = 0.0
+            self._update_standoff_combat(combat_dt, combat_visual_dt)
         self._resolve_casualties(forces_before)
         self._resolve_captures()
         self._update_happiness(dt)
@@ -725,8 +758,58 @@ class Galaxy:
                         result.append(fleet)
         return result
 
-    def _update_standoff_combat(self, dt: float) -> None:
-        shot_allowance = config.MAX_VISIBLE_SHOTS - len(self.combat_shots)
+    def _emit_combat_stream_shots(
+        self,
+        stream_key: tuple[str, int, int],
+        shooter_pos: pygame.Vector2,
+        target_pos: pygame.Vector2,
+        color: tuple[int, int, int],
+        shots_per_second: float,
+        dt: float,
+        visual_dt: float,
+        allowance: int,
+    ) -> int:
+        if shots_per_second <= 0.0 or dt <= 0.0:
+            return 0
+        self._active_shot_streams.add(stream_key)
+        interval = 1.0 / shots_per_second
+        elapsed = self._shot_stream_elapsed.get(stream_key, 0.0) + dt
+        shot_count = int((elapsed + interval * 1e-9) / interval)
+        self._shot_stream_elapsed[stream_key] = max(0.0, elapsed - shot_count * interval)
+        if shot_count <= 0 or allowance <= 0:
+            return 0
+        max_lifetime = config.SHOT_LIFETIME
+        first_index = max(0, shot_count - allowance)
+        emitted = 0
+        visual_scale = visual_dt / dt
+        for index in range(first_index, shot_count):
+            age = (elapsed - (index + 1) * interval) * visual_scale
+            lifetime = max_lifetime - age
+            if lifetime <= 0.0:
+                continue
+            start = shooter_pos.copy() + pygame.Vector2(
+                self.visual_rng.uniform(-8.0, 8.0),
+                self.visual_rng.uniform(-8.0, 8.0),
+            )
+            end = target_pos.copy() + pygame.Vector2(
+                self.visual_rng.uniform(-15.0, 15.0),
+                self.visual_rng.uniform(-15.0, 15.0),
+            )
+            self.combat_shots.append(
+                CombatShot(
+                    start=start,
+                    end=end,
+                    color=color,
+                    lifetime=lifetime,
+                    max_lifetime=max_lifetime,
+                )
+            )
+            emitted += 1
+        return emitted
+
+    def _update_standoff_combat(self, dt: float, visual_dt: float) -> None:
+        shot_allowance = max(0, config.MAX_VISIBLE_SHOTS - len(self.combat_shots))
+        self._active_shot_streams.clear()
         for system in self.systems:
             if system.owner_id is None or system.ships <= config.COMBAT_MIN_SHIPS:
                 continue
@@ -739,10 +822,18 @@ class Galaxy:
                     continue
                 if other.ships <= config.COMBAT_MIN_SHIPS:
                     continue
-                shots = fire_at_target(system, other, system.pos, other.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, shooter_color, self.rng, True, spawn_visuals=shot_allowance > 0)
-                if shots:
-                    self.combat_shots.extend(shots)
-                    shot_allowance -= len(shots)
+                fire_at_target(system, other, system.pos, other.pos, dt, config.SYSTEM_VS_SYSTEM_PER_SHIP, self.rng, True)
+                emitted = self._emit_combat_stream_shots(
+                    ("system", system.id, other.id),
+                    system.pos,
+                    other.pos,
+                    shooter_color,
+                    config.DEFENDER_SHOTS_PER_SECOND,
+                    dt,
+                    visual_dt,
+                    shot_allowance,
+                )
+                shot_allowance -= emitted
                 self.active_combat[other.id] = self.active_combat.get(other.id, 0.0) + config.SYSTEM_VS_SYSTEM_PER_SHIP
         fleet_grid = self._build_fleet_grid()
         seen_pairs: set[tuple[int, int]] = set()
@@ -758,10 +849,18 @@ class Galaxy:
                     continue
                 if system.ships <= config.COMBAT_MIN_SHIPS:
                     continue
-                shots = fire_at_target(fleet, system, fleet.position, system.pos, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng, spawn_visuals=shot_allowance > 0)
-                if shots:
-                    self.combat_shots.extend(shots)
-                    shot_allowance -= len(shots)
+                fire_at_target(fleet, system, fleet.position, system.pos, dt, config.FLEET_VS_FLEET_PER_SHIP, self.rng)
+                emitted = self._emit_combat_stream_shots(
+                    ("fleet-system", fleet.id, system.id),
+                    fleet.position,
+                    system.pos,
+                    shooter_color,
+                    config.ATTACKER_SHOTS_PER_SECOND,
+                    dt,
+                    visual_dt,
+                    shot_allowance,
+                )
+                shot_allowance -= emitted
                 self.active_combat[system.id] = self.active_combat.get(system.id, 0.0) + config.FLEET_VS_FLEET_PER_SHIP * config.DEFENDER_BONUS
             for other in self._nearby_fleets(fleet.position, shooter_range, fleet_grid):
                 if other is fleet or other.owner_id == fleet.owner_id:
@@ -774,11 +873,34 @@ class Galaxy:
                 if pair in seen_pairs:
                     continue
                 seen_pairs.add(pair)
-                shots = fire_at_target(fleet, other, fleet.position, other.position, dt, config.FLEET_VS_FLEET_PER_SHIP, shooter_color, self.rng, spawn_visuals=shot_allowance > 0)
-                shots += fire_at_target(other, fleet, other.position, fleet.position, dt, config.FLEET_VS_FLEET_PER_SHIP, self.empires[other.owner_id].color, self.rng, spawn_visuals=shot_allowance > 0)
-                if shots:
-                    self.combat_shots.extend(shots)
-                    shot_allowance -= len(shots)
+                fire_at_target(fleet, other, fleet.position, other.position, dt, config.FLEET_VS_FLEET_PER_SHIP, self.rng)
+                emitted = self._emit_combat_stream_shots(
+                    ("fleet-fleet", fleet.id, other.id),
+                    fleet.position,
+                    other.position,
+                    shooter_color,
+                    config.ATTACKER_SHOTS_PER_SECOND,
+                    dt,
+                    visual_dt,
+                    shot_allowance,
+                )
+                shot_allowance -= emitted
+                other_color = self.empires[other.owner_id].color
+                fire_at_target(other, fleet, other.position, fleet.position, dt, config.FLEET_VS_FLEET_PER_SHIP, self.rng)
+                emitted = self._emit_combat_stream_shots(
+                    ("fleet-fleet", other.id, fleet.id),
+                    other.position,
+                    fleet.position,
+                    other_color,
+                    config.ATTACKER_SHOTS_PER_SECOND,
+                    dt,
+                    visual_dt,
+                    shot_allowance,
+                )
+                shot_allowance -= emitted
+        for stream_key in tuple(self._shot_stream_elapsed):
+            if stream_key not in self._active_shot_streams:
+                del self._shot_stream_elapsed[stream_key]
         self.fleets = [f for f in self.fleets if f.is_missile or f.ships > config.COMBAT_MIN_SHIPS]
         if len(self.combat_shots) > config.MAX_VISIBLE_SHOTS:
             self.combat_shots = self.combat_shots[-config.MAX_VISIBLE_SHOTS:]
