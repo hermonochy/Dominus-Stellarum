@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import colorsys
 import math
 import random
 from typing import Optional
@@ -985,52 +986,59 @@ class Galaxy:
         elif new_owner == config.PLAYER_ID:
             self.pending_messages.append(f"{system.name} has joined your empire, abandoning the {empire.name}.")
 
+    @staticmethod
+    def _color_to_lab(color: tuple[int, int, int]) -> tuple[float, float, float]:
+        channels = []
+        for value in color:
+            channel = value / 255.0
+            channels.append(
+                ((channel + 0.055) / 1.055) ** 2.4
+                if channel > 0.04045
+                else channel / 12.92
+            )
+        red, green, blue = channels
+        x = (red * 0.4124564 + green * 0.3575761 + blue * 0.1804375) / 0.95047
+        y = red * 0.2126729 + green * 0.7151522 + blue * 0.0721750
+        z = (red * 0.0193339 + green * 0.1191920 + blue * 0.9503041) / 1.08883
+
+        def transform(value: float) -> float:
+            return value ** (1.0 / 3.0) if value > 0.0088564517 else 7.787037 * value + 16.0 / 116.0
+
+        fx, fy, fz = transform(x), transform(y), transform(z)
+        return 116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)
+
     def _color_distance(self, first: tuple[int, int, int], second: tuple[int, int, int]) -> float:
-        mean_red = (first[0] + second[0]) / 2.0
-        dr = first[0] - second[0]
-        dg = first[1] - second[1]
-        db = first[2] - second[2]
-        return math.sqrt(
-            (2.0 + mean_red / 256.0) * dr * dr
-            + 4.0 * dg * dg
-            + (2.0 + (255.0 - mean_red) / 256.0) * db * db
-        )
+        return math.dist(self._color_to_lab(first), self._color_to_lab(second))
 
     def _pick_rebel_color(self) -> tuple[int, int, int]:
-        taken = [empire.color for empire in self.empires]
+        active_ids = {system.owner_id for system in self.systems if system.owner_id is not None}
+        active_ids.update(fleet.owner_id for fleet in self.fleets)
+        active_ids.update(self.command.ships)
+        taken = [empire.color for empire in self.empires if empire.id in active_ids]
         taken.append(config.NEUTRAL_COLOR)
+        taken_lab = [self._color_to_lab(color) for color in taken]
 
-        def min_distance(color: tuple[int, int, int]) -> float:
-            return min(self._color_distance(color, other) for other in taken)
+        candidates = list(config.REBEL_COLORS)
+        hue_offset = self.visual_rng.uniform(0.0, 5.0)
+        saturation_levels = (0.72, 0.86, 1.0)
+        brightness_levels = (0.58, 0.72, 0.86, 1.0)
+        for hue_step in range(72):
+            hue = ((hue_step * 5.0 + hue_offset) % 360.0) / 360.0
+            for saturation in saturation_levels:
+                for brightness in brightness_levels:
+                    red, green, blue = colorsys.hsv_to_rgb(hue, saturation, brightness)
+                    candidates.append((round(red * 255), round(green * 255), round(blue * 255)))
 
-        palette = list(config.REBEL_COLORS)
-        self.rng.shuffle(palette)
-        best_palette: tuple[float, tuple[int, int, int]] | None = None
-        for color in palette:
-            distance = min_distance(color)
-            if distance >= config.REBEL_COLOR_MIN_DISTANCE:
-                return color
-            if best_palette is None or distance > best_palette[0]:
-                best_palette = (distance, color)
+        best_color = candidates[0]
+        best_distance = -1.0
+        for color in candidates:
+            color_lab = self._color_to_lab(color)
+            distance = min(math.dist(color_lab, reference_lab) for reference_lab in taken_lab)
+            if distance > best_distance:
+                best_color = color
+                best_distance = distance
 
-        best_random: tuple[float, tuple[int, int, int]] | None = None
-        for _ in range(64):
-            color = (
-                self.rng.randint(60, 255),
-                self.rng.randint(60, 255),
-                self.rng.randint(60, 255),
-            )
-            distance = min_distance(color)
-            if distance >= config.REBEL_COLOR_MIN_DISTANCE:
-                return color
-            if best_random is None or distance > best_random[0]:
-                best_random = (distance, color)
-
-        if best_random is not None and best_random[0] > (best_palette[0] if best_palette else 0.0):
-            return best_random[1]
-        if best_palette is not None:
-            return best_palette[1]
-        return (128, 128, 128)
+        return best_color
 
     def _spark_revolt(self, empire: Empire, spark: StarSystem, candidates: list[StarSystem]) -> None:
         defectors: dict[int, StarSystem] = {spark.id: spark}
