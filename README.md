@@ -92,6 +92,12 @@ You begin with a home system and a fleet. Systems under your control produce shi
 | Toggle fullscreen | `F` |
 | Exit fullscreen (or quit the game) | `Esc` |
 | Start a new game | `R` |
+| Save the current game | `Ctrl+S` |
+| Load a saved game | Select **Load Game** from the main menu, then choose a save file |
+
+#### Game saves
+
+Press `Ctrl+S` during a game to open the save prompt. The suggested filename is the next unused `saveN.galaxy` name; you can replace it with a custom name. Save files are written to the `saves` folder in the same human-readable text style as custom galaxy files. To resume a game, select **Load Game** from the main menu and choose a `.galaxy` save file. 
 
 #### Fleet orders
 
