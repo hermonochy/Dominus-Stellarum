@@ -324,6 +324,10 @@ class PlayerController:
             self._set_message("Nuclear strike disarmed.")
             return
 
+        if self.galaxy.command.capital(config.PLAYER_ID) is None:
+            self._set_message("Your command ship must be docked at your capital to launch nuclear missiles.")
+            return
+
         missiles = self.galaxy.empires[config.PLAYER_ID].missiles_remaining
         if missiles <= 0:
             self.nuke_targeting = False

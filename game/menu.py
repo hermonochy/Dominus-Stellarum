@@ -122,13 +122,13 @@ HELP_CONTENT = [
     ("gap", ""),
 
     ("heading", "NUCLEAR WARFARE"),
-    ("text", "Press N to arm nuclear targeting, then right-click an enemy system to launch. The missile annihilates every ship and garrison within its blast radius and permanently scars production."),
+    ("text", "Nuclear missiles launch from your capital only, so your command ship must be docked before you can arm a strike. Press N, then right-click an enemy system to launch. The missile annihilates every ship and garrison within its blast radius and permanently scars production."),
     ("text", "Both launcher and victim suffer morale penalties, and empires worldwide observe launch cooldowns. Systems recently struck are briefly protected. Hidden nuclear depots scattered across the galaxy grant extra missiles when captured — including to you."),
     ("gap", ""),
 
     ("heading", "MORALE, REVOLTS AND BETRAYALS"),
     ("text", "Empire morale falls with heavy casualties and nuclear strikes, recovers in peacetime, and rises with every system you capture."),
-    ("text", "When morale drops too low, unhappy systems start defecting: single worlds may betray to a neighbouring empire, and whole sectors can rise together as new independent rebel states. Keep your people loyal or watch your empire fracture."),
+    ("text", "When morale drops too low, unhappy systems start defecting: single worlds may betray to a neighbouring empire, and whole sectors can rise together as new independent rebel states. Capitals are protected from both betrayals and revolts. Keep your people loyal or watch your empire fracture."),
     ("gap", ""),
 
     ("heading", "INTERFACE"),

@@ -396,14 +396,12 @@ class Galaxy:
             return False, f"{target.name} was recently struck — launch refused."
         if self.missile_inbound(target_id):
             return False, "A missile is already inbound to that system."
-        origin = min(
-            (system for system in self.systems
-             if system.owner_id == config.PLAYER_ID),
-            key=lambda system: system.pos.distance_to(target.pos),
-            default=None,
-        )
-        if origin is None:
-            return False, "You no longer control any launch site."
+        capital_id = self.command.capital(config.PLAYER_ID)
+        if capital_id is None:
+            return False, "Your command ship must be docked at your capital to launch nuclear missiles."
+        origin = self.systems[capital_id]
+        if origin.owner_id != config.PLAYER_ID:
+            return False, "Your capital is no longer under your control."
         route = self.shortest_path(origin.id, target_id)
         if route is None or len(route) < 2:
             return False, "No route exists from your territory to that system."
@@ -429,6 +427,8 @@ class Galaxy:
     def _launch_nuclear(self, source_id: int, target_id: int, ignore_cooldown: bool = False) -> bool:
         source = self.systems[source_id]
         if source.owner_id is None or not self.command.can_order(source.owner_id):
+            return False
+        if self.command.capital(source.owner_id) != source_id:
             return False
         empire = self.empires[source.owner_id]
         if empire.missiles_remaining <= 0:
@@ -948,8 +948,11 @@ class Galaxy:
         owned = [system for system in self.systems if system.owner_id == empire.id]
         if len(owned) <= 1:
             return
+        capital_id = self.command.capital(empire.id)
         candidates: list[StarSystem] = []
         for system in owned:
+            if system.id == capital_id:
+                continue
             ship_factor = config.REBELLION_SHIP_SCALE / (config.REBELLION_SHIP_SCALE + max(0.0, system.ships))
             chance = config.REBELLION_BASE_CHANCE * severity * severity * ship_factor
             if self.rng.random() < chance:
@@ -974,6 +977,9 @@ class Galaxy:
             self._spark_revolt(empire, spark, candidates)
 
     def _betray_to_neighbour(self, empire: Empire, system: StarSystem, neighbours: list[StarSystem]) -> None:
+        if system.id == self.command.capital(empire.id):
+            return
+
         def neighbour_weight(node: StarSystem) -> float:
             return node.ships + self.empires[node.owner_id].happiness
         best = max(neighbours, key=neighbour_weight)
@@ -1041,10 +1047,13 @@ class Galaxy:
         return best_color
 
     def _spark_revolt(self, empire: Empire, spark: StarSystem, candidates: list[StarSystem]) -> None:
+        capital_id = self.command.capital(empire.id)
+        if spark.id == capital_id:
+            return
         defectors: dict[int, StarSystem] = {spark.id: spark}
         committed: set[int] = {spark.id}
         for system in candidates:
-            if system.id == spark.id:
+            if system.id == spark.id or system.id == capital_id:
                 continue
             if system.pos.distance_to(spark.pos) <= config.REVOLT_SECTOR_RADIUS:
                 defectors[system.id] = system
@@ -1058,7 +1067,7 @@ class Galaxy:
                     if nid in committed:
                         continue
                     system = self.systems[nid]
-                    if system.owner_id != empire.id:
+                    if system.id == capital_id or system.owner_id != empire.id:
                         continue
                     if system.pos.distance_to(spark.pos) > config.REVOLT_SECTOR_RADIUS:
                         continue

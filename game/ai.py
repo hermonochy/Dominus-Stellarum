@@ -163,16 +163,11 @@ class AIController:
 
             target_system = self._rank_nuclear_targets(targets)[0]
 
-            origin = min(
-                (system for system in self.galaxy.systems
-                 if system.owner_id == empire_id),
-                key=lambda system: system.pos.distance_to(target_system.pos),
-                default=None,
-            )
-            if origin is None:
+            capital_id = self.galaxy.command.capital(empire_id)
+            if capital_id is None:
                 return
 
-            if self.galaxy._launch_nuclear(origin.id, target_system.id):
+            if self.galaxy._launch_nuclear(capital_id, target_system.id):
                 self.nuclear_lockouts[empire_id] = config.NUCLEAR_LAUNCH_LOCKOUT
 
     def _consider_spite_launch(self, empire_id: int) -> None:
@@ -221,6 +216,10 @@ class AIController:
         if not targets:
             return
 
+        capital_id = self.galaxy.command.capital(empire_id)
+        if capital_id is None:
+            return
+
         ranked = self._rank_nuclear_targets(targets)
         num_missiles = empire.missiles_remaining
 
@@ -233,16 +232,7 @@ class AIController:
             if any(target.pos.distance_to(other.pos) < config.NUCLEAR_EFFECT_RADIUS for other in used_targets):
                 continue
 
-            origin = min(
-                (system for system in self.galaxy.systems
-                 if system.owner_id == empire_id),
-                key=lambda system: system.pos.distance_to(target.pos),
-                default=None,
-            )
-            if origin is None:
-                break
-
-            if self.galaxy._launch_nuclear(origin.id, target.id, ignore_cooldown=True):
+            if self.galaxy._launch_nuclear(capital_id, target.id, ignore_cooldown=True):
                 launched += 1
                 used_targets.append(target)
 
