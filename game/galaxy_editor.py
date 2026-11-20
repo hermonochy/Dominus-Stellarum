@@ -44,7 +44,6 @@ class GalaxyEditor:
         self.dirty = False
         self.buttons: list[tuple[pygame.Rect, str]] = []
         self.fields: dict[str, pygame.Rect] = {}
-        self._preview_cache: tuple[bool, int, dict[int, int]] | None = None
         self._cached_names: dict[int, str] | None = None
         self.title_font = pygame.font.Font(None, 35)
         self.body_font = pygame.font.Font(None, 25)
@@ -70,7 +69,6 @@ class GalaxyEditor:
 
     def _mark_dirty(self) -> None:
         self.dirty = True
-        self._preview_cache = None
         self._cached_names = None
 
     def _path(self) -> Path:
@@ -96,9 +94,40 @@ class GalaxyEditor:
         self.focus = None
         self._status(f"Selected {self.filename}. Choose LOAD to open it.")
 
-    def _save(self) -> None:
+    def _assign_missing_starts(self) -> int:
+        indices = list(range(min(len(config.EMPIRES), len(self.layout.systems))))
+        missing = [index for index in indices if index not in self.layout.starts]
+        if not missing:
+            return 0
+        resolved = resolve_empire_starts(self.layout, indices)
+        added = 0
+        for empire, sid in resolved.items():
+            if empire not in self.layout.starts:
+                self.layout.starts[empire] = sid
+                added += 1
+        return added
+
+    def _place_starts(self) -> None:
+        if not self.layout.systems:
+            self._status("Add systems before placing empire starts.", True)
+            return
         self._commit_production()
         try:
+            added = self._assign_missing_starts()
+        except ValueError as exc:
+            self._status(str(exc), True)
+            return
+        self._mark_dirty()
+        if added:
+            self._status(f"Placed {added} empire start(s) automatically. Remember to save.")
+        else:
+            self._status("All empire starts are already assigned.")
+
+    def _save(self) -> None:
+        self._commit_production()
+        placed = 0
+        try:
+            placed = self._assign_missing_starts()
             destination = self._path()
             save_galaxy(self.layout, destination)
         except (OSError, ValueError) as exc:
@@ -107,7 +136,9 @@ class GalaxyEditor:
         self.active_path = destination
         self.filename = destination.name
         self.dirty = False
-        self._status(f"Saved {destination.name}; unassigned empire starts use automatic placement.")
+        self._cached_names = None
+        note = f" Automatic starts placed for {placed} empire(s)." if placed else ""
+        self._status(f"Saved {destination.name}.{note}")
 
     def _load(self, path: Path | None = None) -> None:
         try:
@@ -123,7 +154,6 @@ class GalaxyEditor:
         self.lane_origin = None
         self.focus = None
         self.dirty = False
-        self._preview_cache = None
         self._cached_names = None
         self._fit_view()
         self._sync_fields()
@@ -154,22 +184,6 @@ class GalaxyEditor:
         self._sync_fields()
         self._fit_view()
         self._status("Blank galaxy. Select ADD SYSTEM to place stars.")
-
-    def _preview_starts(self) -> dict[int, int]:
-        cached = self._preview_cache
-        if cached is not None and cached[0] == self.dirty and cached[1] == self.empire_index:
-            return cached[2]
-        if not self.layout.systems:
-            result = {}
-        else:
-            indices = list(sorted(self.layout.starts))
-            if self.empire_index not in indices:
-                indices.insert(0, self.empire_index)
-            indices.extend(index for index in range(len(config.EMPIRES)) if index not in indices)
-            indices = indices[:len(self.layout.systems)]
-            result = resolve_empire_starts(self.layout, indices)
-        self._preview_cache = (self.dirty, self.empire_index, result)
-        return result
 
     def _resolved_names(self) -> dict[int, str]:
         if self._cached_names is None:
@@ -325,7 +339,11 @@ class GalaxyEditor:
             if self.empire_index in self.layout.starts:
                 del self.layout.starts[self.empire_index]
                 self._mark_dirty()
-                self._status(f"{config.EMPIRES[self.empire_index][0]} will use an automatic start.")
+                self._status(f"{config.EMPIRES[self.empire_index][0]} start cleared.")
+            else:
+                self._status(f"{config.EMPIRES[self.empire_index][0]} has no start assigned.")
+        elif action == "place_starts":
+            self._place_starts()
         elif action == "remove":
             self._delete_selected()
         elif action == "fit":
@@ -534,7 +552,6 @@ class GalaxyEditor:
                 pygame.draw.line(self.screen, (16, 23, 38), (0, y), (canvas.right, y))
         positions = {system.id: self._screen(system) for system in self.layout.systems}
         names = self._resolved_names()
-        starts_preview = self._preview_starts()
         lane_mode = self.mode == "lane"
         lane_color = (110, 175, 235) if lane_mode else config.LANE_COLOR
         lane_width = max(3, round(self.zoom * 5)) if lane_mode else max(1, round(self.zoom * 3))
@@ -547,7 +564,7 @@ class GalaxyEditor:
             px, py = positions[system.id]
             if not canvas.inflate(30, 30).collidepoint((px, py)):
                 continue
-            starts = [eid for eid, sid in starts_preview.items() if sid == system.id]
+            starts = [eid for eid, sid in self.layout.starts.items() if sid == system.id]
             if starts:
                 color = config.EMPIRES[starts[0]][1]
                 if sum(color) < 130:
@@ -586,25 +603,22 @@ class GalaxyEditor:
         empire = self.empire_index
         color = config.EMPIRES[empire][1]
         self._text(f"{empire + 1}: {config.EMPIRES[empire][0]}", (x + 37, 407), color, self.small_font)
-        self._text("Auto if unset", (x, 442), config.MUTED_TEXT, self.small_font)
-        self._button("CLEAR START", "clear_start", pygame.Rect(x + 186, 436, 104, 28))
-        preview = self._preview_starts()
-        start_system = next((system for system in self.layout.systems if system.id == preview.get(empire)), None)
-        start_label = f"Start: {self.layout.system_name(start_system)}" if start_system is not None else "Start: automatic"
-        if empire not in self.layout.starts and start_system is not None:
-            start_label += " (auto)"
-        self._text(start_label[:35], (x, 468), config.MUTED_TEXT, self.small_font)
+        self._button("CLEAR START", "clear_start", pygame.Rect(x, 436, 141, 28))
+        self._button("PLACE EMPIRE STARTS", "place_starts", pygame.Rect(x + 149, 436, 141, 28))
+        start_system = next((system for system in self.layout.systems if system.id == self.layout.starts.get(empire)), None)
+        start_label = f"Start: {self.layout.system_name(start_system)}" if start_system is not None else "Start: none assigned"
+        self._text(start_label[:35], (x, 474), config.MUTED_TEXT, self.small_font)
         selected = self._selected()
         label = f"SYSTEM {selected.id}" if selected is not None else "NO SYSTEM SELECTED"
-        self._text(label, (x, 493), config.SELECTION_COLOR, self.body_font)
-        self._field("name", "Name (blank = default)", self.name_input, x, 521)
-        self._field("production", f"Production (blank = {config.PRODUCTION_MIN / 2 + config.PRODUCTION_MAX / 2:g})", self.production_input, x, 584)
-        self._button("REMOVE SELECTED", "remove", pygame.Rect(x, 649, 141, 32))
-        self._button("FIT GALAXY", "fit", pygame.Rect(x + 149, 649, 141, 32))
-        self._button("NEW BLANK GALAXY", "new", pygame.Rect(x, 687, 290, 29))
+        self._text(label, (x, 499), config.SELECTION_COLOR, self.body_font)
+        self._field("name", "Name (blank = default)", self.name_input, x, 527)
+        self._field("production", f"Production (blank = {config.PRODUCTION_MIN / 2 + config.PRODUCTION_MAX / 2:g})", self.production_input, x, 590)
+        self._button("REMOVE SELECTED", "remove", pygame.Rect(x, 655, 141, 32))
+        self._button("FIT GALAXY", "fit", pygame.Rect(x + 149, 655, 141, 32))
+        self._button("NEW BLANK GALAXY", "new", pygame.Rect(x, 693, 290, 29))
         hints = ["Left click: use selected tool", "Select + drag: reposition a star", "Lane: click two stars to toggle", "Start: choose empire, click star", "Right/middle drag: pan   Wheel: zoom", "Ctrl+S: save   Ctrl+O: load   F: fit"]
         for i, hint in enumerate(hints):
-            y = 722 + i * 19
+            y = 728 + i * 19
             if y < self.screen.get_height() - 9:
                 self._text(hint, (x, y), config.MUTED_TEXT, self.small_font)
 
@@ -613,7 +627,7 @@ class GalaxyEditor:
         self._draw_canvas()
         pygame.draw.rect(self.screen, config.PANEL, (0, 0, self.sidebar_x, 58))
         self._text("GALAXY MAP", (18, 14), config.TEXT, self.title_font)
-        info = f"{len(self.layout.systems)} systems  |  {len(self.layout.edges)} hyperlanes  |  {len(self.layout.starts)} custom starts (others automatic)"
+        info = f"{len(self.layout.systems)} systems  |  {len(self.layout.edges)} hyperlanes  |  {len(self.layout.starts)} assigned starts"
         self._text(info, (235, 24), config.MUTED_TEXT, self.small_font)
         pygame.draw.rect(self.screen, config.PANEL, (0, self.screen.get_height() - 40, self.sidebar_x, 40))
         message = ("UNSAVED  |  " if self.dirty else "") + self.message
